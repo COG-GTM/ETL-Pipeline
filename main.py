@@ -1,46 +1,44 @@
-# provides ways to access the Operating System and allows us to read the environment variables
 import os
-
 from datetime import datetime
-from src.extract import extract_transaction_data
+from dotenv import load_dotenv
+
+from src.extract import extract_vehicle_sales_data
 from src.transform import identify_and_remove_duplicated_data
 from src.load_data_to_s3 import df_to_s3
 
-# import the load_dotenv from the python-dotenv module
-from dotenv import load_dotenv
-load_dotenv() # take environment variables from .env only for local testing
+# Load environment variables (only needed for local/dev testing)
+load_dotenv()
 
-
-# import environment variables from .env file
-dbname = os.getenv("dbname")
-host = os.getenv("host")
-port = os.getenv("port")
-user = os.getenv("user")
-password = os.getenv("password")
+# Read database and AWS credentials from .env
+dbname = os.getenv("DB_NAME")
+host = os.getenv("DB_HOST")
+port = os.getenv("DB_PORT")
+user = os.getenv("DB_USER")
+password = os.getenv("DB_PASSWORD")
 aws_access_key_id = os.getenv("aws_access_key_id")
-aws_secret_access_key_id = os.getenv("aws_secret_access_key_id")
+aws_secret_access_key = os.getenv("aws_secret_access_key_id")
 
-# this creates a variable that tracks the time we executed the script
+# Track start time
 start_time = datetime.now()
 
-# make a connection to redshift and extract online transactions data with transformation tasks
-print("\nExtracting and transforming data in sql...")
-online_trans_cleaned = extract_transaction_data(dbname, host, port, user, password)
-print('\nExtraction and transformation in sql completed')
+# Step 1: Extract data
+print("\n🚗 Extracting and transforming vehicle sales + service data...")
+vehicle_sales_df = extract_vehicle_sales_data(dbname, host, port, user, password)
+print("✅ Extraction complete")
 
-# remove duplicated data
-print("\nRemoving duplicated data...")
-online_trans_deduped = identify_and_remove_duplicated_data(online_trans_cleaned)
-print('\nDuplicated data removed')
+# Step 2: Remove duplicates
+print("\n🧹 Removing duplicated rows...")
+vehicle_sales_deduped = identify_and_remove_duplicated_data(vehicle_sales_df)
+print("✅ Deduplication complete")
 
-# load online_trans_deduped to s3
-print("\nLoading data to s3...")
-s3_bucket = 'waia-data-dump'
-key = 'bootcamp2/etl/dk_online_trans_cleaned.csv'
+# Step 3: Upload to S3
+print("\n☁️ Uploading cleaned data to S3...")
+s3_bucket = 'cognition-devin'
+key = 'auto_oem/etl/vehicle_sales_deduped.csv'
 
-df_to_s3(online_trans_deduped, key, s3_bucket, aws_access_key_id, aws_secret_access_key_id)
-print('\nData loaded to s3')
+df_to_s3(vehicle_sales_deduped, key, s3_bucket, aws_access_key_id, aws_secret_access_key)
+print("✅ Data successfully uploaded to S3")
 
-# this creates a variable that calculates how long it takes to run the script
+# Step 4: Execution time
 execution_time = datetime.now() - start_time
-print(f"\nTotal execution time (hh:mm:ss.ms) {execution_time}")
+print(f"\n⏱️ Total execution time: {execution_time}")

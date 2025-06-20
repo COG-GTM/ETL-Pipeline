@@ -2,58 +2,53 @@ import psycopg2
 import pandas as pd
 
 
-def connect_to_redshift(dbname, host, port, user, password):
-    """Method that connects to redshift. This gives a warning so will look for another solution"""
-
-    connect = psycopg2.connect(
-        dbname=dbname, host=host, port=port, user=user, password=password
+def connect_to_postgres(dbname, host, port, user, password):
+    """Connects to a local or remote PostgreSQL database"""
+    conn = psycopg2.connect(
+        dbname=dbname,
+        host=host,
+        port=port,
+        user=user,
+        password=password
     )
+    print("✅ Connected to PostgreSQL")
+    return conn
 
-    print("connection to redshift made")
 
-    return connect
-
-def extract_transaction_data(dbname, host, port, user, password):
+def extract_vehicle_sales_data(dbname, host, port, user, password):
     """
-    This function connects to redshift, extracts online transactions data and carry out the following transformation tasks:
-    1. Select everything from online_transaction table and description from stock_description table
-    2. Filters on where customer_id is not equal to ‘’
-    3. Filters on where stock_code not in BANK CHARGES, POST, D, M, CRUK
-    4. If the description is null replaces it with 'Unknown'
-    5. Fix the invoice_date field from object to datetime
-    6. Add a variable/column for total order value (price x quantity)
-
+    Extract and transform vehicle sales and service data.
+    - Joins vehicles, dealerships, sales_transactions, and service_records
+    - Replaces null service type/cost with defaults
+    - Computes total sales revenue per transaction
+    - Formats dates as datetime
     """
-
-    # connect to redshift
-    connect = connect_to_redshift(dbname, host, port, user, password)
-
-    # query to extract online transactions data
+    conn = connect_to_postgres(dbname, host, port, user, password)
 
     query = """
-    SELECT ot.invoice, 
-           ot.stock_code,
-           CASE WHEN s.description IS NULL THEN 'Unknown'
-                ELSE s.description END AS description,
-           ot.price,
-           ot.quantity,
-            /* add a column for total order value */
-           ot.price * ot.quantity AS total_order_value,
-           CAST(invoice_date As DateTime) AS invoice_date,
-           ot.customer_id,
-           ot.country
-    FROM bootcamp.online_transactions ot
-    /* this is a subquery that removes '?' from the stock_description table */
-    LEFT JOIN ( SELECT *
-                FROM bootcamp.stock_description
-                WHERE description <> '?') AS s
-    ON ot.stock_code = s.stock_code
-    WHERE ot.customer_id <> ''
-    AND ot.stock_code NOT IN ('BANK CHARGES', 'POST', 'D', 'M', 'CRUK')
+    SELECT
+        v.vin,
+        v.model,
+        v.year,
+        d.name AS dealership_name,
+        d.region,
+        s.sale_date,
+        s.sale_price,
+        s.buyer_name,
+        COALESCE(sr.service_date, NULL) AS service_date,
+        COALESCE(sr.service_type, 'Unknown') AS service_type,
+        COALESCE(sr.service_cost, 0) AS service_cost
+    FROM vehicles v
+    JOIN dealerships d ON v.dealership_id = d.id
+    LEFT JOIN sales_transactions s ON v.vin = s.vin
+    LEFT JOIN service_records sr ON v.vin = sr.vin
     """
 
-    online_trans_cleaned = pd.read_sql(query, connect)
+    df = pd.read_sql(query, conn)
 
-    print('The shape of the extracted and transformed data:', online_trans_cleaned.shape)
+    # Convert dates to datetime objects
+    df['sale_date'] = pd.to_datetime(df['sale_date'], errors='coerce')
+    df['service_date'] = pd.to_datetime(df['service_date'], errors='coerce')
 
-    return online_trans_cleaned
+    print("🔍 Extracted rows:", df.shape[0])
+    return df
