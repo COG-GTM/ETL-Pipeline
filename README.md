@@ -1,4 +1,4 @@
-# ETL Pipeline - Vehicle Sales Data Processing
+# ETL Pipeline - Comprehensive Vehicle Sales Data Processing Guide
 
 A comprehensive ETL (Extract, Transform, Load) pipeline for processing vehicle sales and service data from PostgreSQL databases to Amazon S3 storage.
 
