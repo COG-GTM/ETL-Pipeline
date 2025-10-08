@@ -16,7 +16,7 @@ port = os.getenv("DB_PORT")
 user = os.getenv("DB_USER")
 password = os.getenv("DB_PASSWORD")
 aws_access_key_id = os.getenv("aws_access_key_id")
-aws_secret_access_key = os.getenv("aws_secret_access_key_id")
+aws_secret_access_key = os.getenv("aws_secret_access_key")
 
 # Track start time
 start_time = datetime.now()

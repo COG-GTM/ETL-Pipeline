@@ -18,9 +18,9 @@ def connect_to_postgres(dbname, host, port, user, password):
 def extract_vehicle_sales_data(dbname, host, port, user, password):
     """
     Extract and transform vehicle sales and service data.
-    - Joins vehicles, dealerships, sales_transactions, and service_records
+    - Joins vehicles, dealerships, sales_transactions
+    - Aggregates service records to avoid duplicate rows
     - Replaces null service type/cost with defaults
-    - Computes total sales revenue per transaction
     - Formats dates as datetime
     """
     conn = connect_to_postgres(dbname, host, port, user, password)
@@ -35,20 +35,23 @@ def extract_vehicle_sales_data(dbname, host, port, user, password):
         s.sale_date,
         s.sale_price,
         s.buyer_name,
-        COALESCE(sr.service_date, NULL) AS service_date,
-        COALESCE(sr.service_type, 'Unknown') AS service_type,
-        COALESCE(sr.service_cost, 0) AS service_cost
+        MAX(sr.service_date) AS latest_service_date,
+        COUNT(sr.id) AS service_count,
+        SUM(COALESCE(sr.service_cost, 0)) AS total_service_cost
     FROM vehicles v
     JOIN dealerships d ON v.dealership_id = d.id
     LEFT JOIN sales_transactions s ON v.vin = s.vin
     LEFT JOIN service_records sr ON v.vin = sr.vin
+    GROUP BY v.vin, v.model, v.year, d.name, d.region, s.sale_date, s.sale_price, s.buyer_name
     """
 
     df = pd.read_sql(query, conn)
+    
+    conn.close()
 
     # Convert dates to datetime objects
     df['sale_date'] = pd.to_datetime(df['sale_date'], errors='coerce')
-    df['service_date'] = pd.to_datetime(df['service_date'], errors='coerce')
+    df['latest_service_date'] = pd.to_datetime(df['latest_service_date'], errors='coerce')
 
     print("🔍 Extracted rows:", df.shape[0])
     return df
