@@ -1,6 +1,10 @@
 import pytest
 import os
+import sys
 import pandas as pd
+
+# Add the project root to the Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
