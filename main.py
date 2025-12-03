@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 from src.extract import extract_vehicle_sales_data
 from src.transform import identify_and_remove_duplicated_data
-from src.load_data_to_s3 import df_to_s3
+from src.load_data_to_s3 import df_to_s3_parquet
 
 # Load environment variables (only needed for local/dev testing)
 load_dotenv()
@@ -31,13 +31,13 @@ print("\n🧹 Removing duplicated rows...")
 vehicle_sales_deduped = identify_and_remove_duplicated_data(vehicle_sales_df)
 print("✅ Deduplication complete")
 
-# Step 3: Upload to S3
-print("\n☁️ Uploading cleaned data to S3...")
+# Step 3: Upload to S3 as Parquet (partitioned by region)
+print("\nUploading cleaned data to S3 as Parquet...")
 s3_bucket = 'cognition-devin'
-key = 'auto_oem/etl/vehicle_sales_deduped.csv'
+base_key = 'auto_oem/etl/vehicle_sales_deduped'
 
-df_to_s3(vehicle_sales_deduped, key, s3_bucket, aws_access_key_id, aws_secret_access_key)
-print("✅ Data successfully uploaded to S3")
+df_to_s3_parquet(vehicle_sales_deduped, base_key, s3_bucket, aws_access_key_id, aws_secret_access_key)
+print("Data successfully uploaded to S3")
 
 # Step 4: Execution time
 execution_time = datetime.now() - start_time
