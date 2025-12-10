@@ -1,5 +1,5 @@
 # Deriving the python image
-FROM python:3.8
+FROM python:3.14.2
 
 # Create a working directory in Docker, makes life easier when running instructions
 WORKDIR /app
