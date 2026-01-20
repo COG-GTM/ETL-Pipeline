@@ -2,3 +2,10 @@ psycopg2-binary
 pandas
 boto3
 python-dotenv
+
+# Testing dependencies
+pytest>=7.0.0
+pytest-mock>=3.10.0
+moto[s3]>=4.0.0
+pytest-cov>=4.0.0
+pytest-postgresql>=5.0.0
