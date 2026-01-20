@@ -306,14 +306,19 @@ class TestETLPipelineErrorHandling:
         self, mock_psycopg2_connect, sample_vehicle_data, test_db_credentials, capsys
     ):
         """Test pipeline handles S3 errors gracefully."""
+        from botocore.exceptions import ClientError
+        
         with patch('pandas.read_sql', return_value=sample_vehicle_data):
             extracted_df = extract_vehicle_sales_data(**test_db_credentials)
             transformed_df = identify_and_remove_duplicated_data(extracted_df)
             
-            # Mock S3 to raise an error
+            # Mock S3 to raise a ClientError (which is what df_to_s3 catches)
             with patch('src.load_data_to_s3.connect_to_s3') as mock_connect:
                 mock_client = MagicMock()
-                mock_client.put_object.side_effect = Exception("S3 Error")
+                mock_client.put_object.side_effect = ClientError(
+                    {'Error': {'Code': 'AccessDenied', 'Message': 'Access Denied'}},
+                    'PutObject'
+                )
                 mock_connect.return_value = mock_client
                 
                 # Should not raise, but print error
@@ -326,4 +331,4 @@ class TestETLPipelineErrorHandling:
                 )
                 
                 captured = capsys.readouterr()
-                assert 'Failed' in captured.out or 'Error' in captured.out
+                assert 'Failed' in captured.out or 'Access Denied' in captured.out
