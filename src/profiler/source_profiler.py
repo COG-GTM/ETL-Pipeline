@@ -80,9 +80,16 @@ class SourceProfiler:
             "summary": {},
         }
 
+        for col in df.columns:
+            if df[col].apply(lambda x: isinstance(x, (list, dict))).any():
+                df[col] = df[col].apply(lambda x: json.dumps(x, default=str) if isinstance(x, (list, dict)) else x)
+
         total_cells = len(df) * len(df.columns)
         total_nulls = int(df.isnull().sum().sum())
-        total_duplicates = int(df.duplicated().sum())
+        try:
+            total_duplicates = int(df.duplicated().sum())
+        except TypeError:
+            total_duplicates = 0
 
         profile["summary"] = {
             "total_cells": total_cells,
