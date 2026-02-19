@@ -1,4 +1,3 @@
-import re
 from datetime import datetime
 from typing import Any
 
@@ -109,10 +108,24 @@ class DataQualityEngine:
 
         for col in df.columns:
             if col.endswith("_id") or col == "id" or col.endswith("_key"):
-                id_rule = QualityRule(f"uniqueness_{col}", f"Check uniqueness for ID column '{col}'", "critical")
-                dup_ids = int(df[col].dropna().duplicated().sum())
-                id_rule.passed = dup_ids == 0
-                id_rule.details = {"column": col, "duplicate_values": dup_ids}
+                non_null = df[col].dropna()
+                dup_ids = int(non_null.duplicated().sum())
+                unique_ratio = non_null.nunique() / len(non_null) if len(non_null) > 0 else 1.0
+                is_primary_key = unique_ratio == 1.0
+                if is_primary_key:
+                    severity = "critical"
+                    description = f"Check uniqueness for primary key column '{col}'"
+                else:
+                    severity = "info"
+                    description = f"Check uniqueness for foreign key column '{col}' (duplicates expected)"
+                id_rule = QualityRule(f"uniqueness_{col}", description, severity)
+                id_rule.passed = is_primary_key or unique_ratio < 1.0
+                id_rule.details = {
+                    "column": col,
+                    "duplicate_values": dup_ids,
+                    "unique_ratio": round(unique_ratio, 4),
+                    "inferred_role": "primary_key" if is_primary_key else "foreign_key",
+                }
                 self.rules.append(id_rule)
 
     def _check_consistency(self, df: pd.DataFrame) -> None:
@@ -247,7 +260,11 @@ class DataQualityEngine:
                 recommendations.append("Remove or investigate duplicate rows - define deduplication strategy")
             elif "uniqueness" in rule.name:
                 col = rule.details.get("column", "ID column")
-                recommendations.append(f"Fix duplicate IDs in '{col}' - this breaks referential integrity")
+                role = rule.details.get("inferred_role", "unknown")
+                if role == "primary_key":
+                    recommendations.append(f"Fix duplicate IDs in '{col}' - this breaks referential integrity")
+                else:
+                    recommendations.append(f"Foreign key '{col}' has expected duplicates - verify referential integrity with parent table")
             elif "valid_email" in rule.name:
                 recommendations.append("Add email validation at ingestion point")
             elif "valid_phone" in rule.name:
