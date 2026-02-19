@@ -107,6 +107,7 @@ class DataConsolidator:
 
             right_df = self.sources[source_name]
             before_rows = len(result)
+            cols_before = set(result.columns)
 
             result = result.merge(
                 right_df,
@@ -123,7 +124,7 @@ class DataConsolidator:
                 "join_keys": f"{left_key} = {right_key}",
                 "rows_before": before_rows,
                 "rows_after": len(result),
-                "columns_added": [c for c in result.columns if c not in self.sources[primary_source].columns],
+                "columns_added": [c for c in result.columns if c not in cols_before],
                 "timestamp": datetime.now().isoformat(),
             })
 

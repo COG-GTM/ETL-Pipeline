@@ -52,10 +52,7 @@ class SourceProfiler:
                 if record:
                     records.append(record)
 
-        if not records:
-            return {"error": "No tabular data found in XML", "source": file_path}
-
-        df = pd.DataFrame(records)
+        df = pd.DataFrame(records) if records else pd.DataFrame()
         return self._profile_dataframe(df, file_path, "xml")
 
     def profile_auto(self, file_path: str) -> dict[str, Any]:
