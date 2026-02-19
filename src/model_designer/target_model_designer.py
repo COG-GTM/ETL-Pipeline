@@ -23,7 +23,7 @@ class TargetModelDesigner:
         dimension_tables = []
 
         for table_name, columns in all_columns.items():
-            if fact_table_hint.lower() in table_name.lower():
+            if fact_table is None and fact_table_hint.lower() in table_name.lower():
                 fact_table = {"name": f"fact_{table_name}", "source": table_name, "columns": columns}
             else:
                 dimension_tables.append({"name": f"dim_{table_name}", "source": table_name, "columns": columns})

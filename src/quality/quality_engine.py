@@ -119,7 +119,7 @@ class DataQualityEngine:
                     severity = "info"
                     description = f"Check uniqueness for foreign key column '{col}' (duplicates expected)"
                 id_rule = QualityRule(f"uniqueness_{col}", description, severity)
-                id_rule.passed = is_primary_key or unique_ratio < 1.0
+                id_rule.passed = dup_ids == 0 if is_primary_key else True
                 id_rule.details = {
                     "column": col,
                     "duplicate_values": dup_ids,
