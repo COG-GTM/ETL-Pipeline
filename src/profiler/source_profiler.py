@@ -40,7 +40,7 @@ class SourceProfiler:
 
         records = []
         for element in root.iter():
-            if len(element) > 0 and all(child.text for child in element if child.text and child.text.strip()):
+            if len(element) > 0 and any(child.text and child.text.strip() for child in element):
                 record = {}
                 for child in element:
                     if child.text and child.text.strip():
