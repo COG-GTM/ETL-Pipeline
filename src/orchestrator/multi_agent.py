@@ -136,9 +136,8 @@ class MultiAgentOrchestrator:
             architect.record_action("generate_ddl", {
                 "tables_created": 1 + len(dims),
                 "indexes_recommended": sum(
-                    len(s.get("indexes_recommended", []))
+                    len(p.get("indexes_recommended", []))
                     for p in profiles
-                    for s in [{}]
                 ),
             })
 

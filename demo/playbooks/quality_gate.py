@@ -45,6 +45,9 @@ class QualityGatePlaybook:
         if gate_passed:
             decision = "APPROVED"
             action = "Data cleared for loading to target system"
+        elif self.block_on_critical and critical > 0:
+            decision = "REJECTED"
+            action = "Data blocked due to critical quality failures. Fix critical issues before retry."
         elif score >= self.min_score * 0.8:
             decision = "CONDITIONAL"
             action = "Data may proceed with quality remediation applied"
