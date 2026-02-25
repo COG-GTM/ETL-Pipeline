@@ -92,7 +92,11 @@ def run_demo() -> None:
     print("  - Devin profiles data IN CONTEXT of the full pipeline lifecycle")
     print("  - Automatic semantic type detection (emails, phones, dates, IDs)")
     print("  - Infers column roles (identifier, categorical, text, numeric)")
-    print("  - Profiles feed directly into downstream quality + model design\n")
+    print("  - Profiles feed directly into downstream quality + model design")
+    print("  - Pseudo-null detection (empty strings, 'N/A', 'null', '-', etc.)")
+    print("  - Statistical outlier detection (IQR method) with percentiles")
+    print("  - Cross-source column analysis and foreign key inference")
+    print("  - Pattern detection (ZIP codes, UUIDs, URLs, currency values)\n")
 
     profiler = SourceProfiler()
     schema_detector = SchemaDetector()
@@ -113,6 +117,14 @@ def run_demo() -> None:
         print(schema_detector.generate_schema_report(schema))
         print(f"\n  Auto-generated DDL:\n{schema_detector.generate_ddl(schema)}")
         print()
+
+    # Cross-source analysis: shared columns and foreign key inference
+    if len(profiles) > 1:
+        print(f"\n{'─'*70}")
+        print("  CROSS-SOURCE ANALYSIS")
+        print(f"{'─'*70}")
+        cross_analysis = profiler.profile_cross_source(profiles)
+        print(profiler.generate_cross_source_report(cross_analysis))
 
     pause()
 
