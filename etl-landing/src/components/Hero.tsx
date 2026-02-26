@@ -21,7 +21,8 @@ export default function Hero() {
         <div className="flex gap-4 justify-center">
           <a
             href="#pipeline"
-            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-[10px] text-[15px] font-semibold bg-linear-to-br from-accent-teal to-accent-blue text-[#0F172A] transition-all duration-300 hover:translate-y-[-2px] hover:shadow-[0_8px_32px_rgba(34,211,238,0.3)] hover:no-underline"
+            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-[10px] text-[15px] font-semibold transition-all duration-300 hover:translate-y-[-2px] hover:shadow-[0_8px_32px_rgba(34,211,238,0.3)] hover:no-underline"
+            style={{ background: "linear-gradient(135deg, #22D3EE, #60A5FA)", color: "#0F172A" }}
           >
             View the Pipeline
           </a>

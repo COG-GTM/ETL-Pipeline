@@ -6,10 +6,10 @@ const colorMap: Record<string, string> = {
   "accent-indigo": "text-accent-indigo",
 };
 
-const borderColorMap: Record<string, string> = {
-  "accent-teal": "border-accent-teal",
-  "accent-blue": "border-accent-blue",
-  "accent-indigo": "border-accent-indigo",
+const borderCssMap: Record<string, string> = {
+  "accent-teal": "#22D3EE",
+  "accent-blue": "#60A5FA",
+  "accent-indigo": "#818CF8",
 };
 
 export default function PlaybookGrid() {
@@ -42,13 +42,24 @@ export default function PlaybookGrid() {
               <p className="text-[13px] text-text-secondary leading-[1.7] mb-4">
                 {playbook.description}
               </p>
-              <ol className="list-none counter-reset-step">
+              <ol className="list-none">
                 {playbook.steps.map((step, i) => (
                   <li
                     key={i}
-                    className={`relative py-2 pl-9 text-[13px] text-text-secondary border-l-2 border-[rgba(255,255,255,0.05)] ml-3 before:content-[attr(data-step)] before:absolute before:left-[-13px] before:w-6 before:h-6 before:rounded-full before:bg-bg-primary before:border-2 ${borderColorMap[playbook.accentColor]} before:flex before:items-center before:justify-center before:text-[11px] before:font-bold ${colorMap[playbook.accentColor]}`}
-                    data-step={i + 1}
+                    className="relative py-2 pl-9 text-[13px] text-text-secondary border-l-2 border-[rgba(255,255,255,0.05)] ml-3"
                   >
+                    <span
+                      className="absolute flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-bold"
+                      style={{
+                        left: "-13px",
+                        top: "8px",
+                        background: "#0F172A",
+                        border: `2px solid ${borderCssMap[playbook.accentColor]}`,
+                        color: borderCssMap[playbook.accentColor],
+                      }}
+                    >
+                      {i + 1}
+                    </span>
                     {step}
                   </li>
                 ))}
