@@ -2,7 +2,9 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv
 
-from src.extract import extract_vehicle_sales_data
+import pandas as pd
+
+from src.extract import extract_vehicle_sales_data_chunked
 from src.transform import identify_and_remove_duplicated_data
 from src.load_data_to_s3 import df_to_s3
 
@@ -21,15 +23,24 @@ aws_secret_access_key = os.getenv("aws_secret_access_key_id")
 # Track start time
 start_time = datetime.now()
 
-# Step 1: Extract data
-print("\n🚗 Extracting and transforming vehicle sales + service data...")
-vehicle_sales_df = extract_vehicle_sales_data(dbname, host, port, user, password)
-print("✅ Extraction complete")
+# Step 1: Extract and process data in batches
+print("\n🚗 Extracting and transforming vehicle sales + service data in batches...")
+processed_chunks = []
+chunk_size = 10000
 
-# Step 2: Remove duplicates
-print("\n🧹 Removing duplicated rows...")
-vehicle_sales_deduped = identify_and_remove_duplicated_data(vehicle_sales_df)
-print("✅ Deduplication complete")
+for i, chunk in enumerate(extract_vehicle_sales_data_chunked(
+        dbname, host, port, user, password, chunk_size=chunk_size)):
+    print(f"  Processing batch {i + 1} ({len(chunk)} rows)...")
+    deduped_chunk = identify_and_remove_duplicated_data(chunk)
+    processed_chunks.append(deduped_chunk)
+
+vehicle_sales_deduped = pd.concat(processed_chunks, ignore_index=True)
+print(f"✅ Batch processing complete. Total rows: {len(vehicle_sales_deduped)}")
+
+# Step 2: Final cross-batch deduplication (records could duplicate across chunks)
+print("\n🧹 Running cross-batch deduplication...")
+vehicle_sales_deduped = identify_and_remove_duplicated_data(vehicle_sales_deduped)
+print("✅ Cross-batch deduplication complete")
 
 # Step 3: Upload to S3
 print("\n☁️ Uploading cleaned data to S3...")
