@@ -237,7 +237,6 @@ def add_computed_columns(df: pd.DataFrame) -> pd.DataFrame:
     Computed columns:
         - stock_status: 'low_stock' when quantity_on_hand <= reorder_point,
           'adequate' otherwise.
-        - days_until_delivery: Business days between today and expected_delivery.
         - margin_pct: Percentage margin based on unit_price and unit_cost.
 
     Parameters:
@@ -246,6 +245,8 @@ def add_computed_columns(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with additional computed columns.
     """
+    df = df.copy()
+
     if "quantity_on_hand" in df.columns and "reorder_point" in df.columns:
         df["stock_status"] = df.apply(
             lambda row: "low_stock"
