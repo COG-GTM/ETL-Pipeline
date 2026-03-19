@@ -22,3 +22,4 @@ def df_to_s3(df, key, s3_bucket, aws_access_key_id, aws_secret_access_key, regio
         print(f"✅ Uploaded {len(df)} rows to s3://{s3_bucket}/{key}")
     except botocore.exceptions.ClientError as e:
         print(f"❌ Failed to upload to S3: {e}")
+        raise
