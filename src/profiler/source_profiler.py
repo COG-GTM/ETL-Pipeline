@@ -33,7 +33,7 @@ class SourceProfiler:
         return self._profile_dataframe(df, file_path, "json")
 
     def profile_xml(self, file_path: str) -> dict[str, Any]:
-        import xml.etree.ElementTree as ET
+        import defusedxml.ElementTree as ET
 
         tree = ET.parse(file_path)
         root = tree.getroot()
