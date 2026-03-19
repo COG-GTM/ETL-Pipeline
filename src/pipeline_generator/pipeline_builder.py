@@ -181,13 +181,39 @@ class PipelineBuilder:
                 fmt = step.config.get("format", "csv")
                 source = step.config.get("source", "unknown")
                 safe = self._safe_name(source)
-                if fmt == "csv":
-                    lines.append(f'        self.dataframes["{safe}"] = pd.read_csv("{source}")')
-                elif fmt == "json":
-                    lines.append(f'        self.dataframes["{safe}"] = pd.read_json("{source}")')
+                strategy = step.config.get("strategy", "full_load")
+                chunk_size = step.config.get("chunk_size")
+
+                if strategy == "chunked" and chunk_size:
+                    # Generate chunked extraction with iteration loop
+                    if fmt == "csv":
+                        lines.append(f'        chunks = []')
+                        lines.append(
+                            f'        for i, chunk in enumerate('
+                            f'pd.read_csv("{source}", chunksize={chunk_size})):')
+                        lines.append(f'            logger.info("Processing chunk %d (%d rows)", i + 1, len(chunk))')
+                        lines.append(f'            chunk = chunk.drop_duplicates()')
+                        lines.append(f'            chunks.append(chunk)')
+                        lines.append(f'        self.dataframes["{safe}"] = pd.concat(chunks, ignore_index=True)')
+                        lines.append(f'        # Cross-chunk deduplication')
+                        lines.append(f'        self.dataframes["{safe}"] = self.dataframes["{safe}"].drop_duplicates()')
+                        lines.append(
+                            f'        logger.info("Extracted %d rows (chunked)",'
+                            f' len(self.dataframes["{safe}"]))')
+                    elif fmt == "json":
+                        lines.append(f'        self.dataframes["{safe}"] = pd.read_json("{source}")')
+                    else:
+                        lines.append(f'        # Extract from {fmt} source: {source}')
+                        lines.append(f'        pass')
                 else:
-                    lines.append(f'        # Extract from {fmt} source: {source}')
-                    lines.append(f'        pass')
+                    # Full load (original behavior)
+                    if fmt == "csv":
+                        lines.append(f'        self.dataframes["{safe}"] = pd.read_csv("{source}")')
+                    elif fmt == "json":
+                        lines.append(f'        self.dataframes["{safe}"] = pd.read_json("{source}")')
+                    else:
+                        lines.append(f'        # Extract from {fmt} source: {source}')
+                        lines.append(f'        pass')
             elif step.step_type == "validate":
                 lines.append(f"        # Run quality validation checks")
                 lines.append(f"        pass")
@@ -203,8 +229,28 @@ class PipelineBuilder:
                 lines.append(f"        # Consolidate multiple data sources")
                 lines.append(f"        pass")
             elif step.step_type == "load":
-                lines.append(f"        # Load to target data warehouse")
-                lines.append(f"        pass")
+                batch_size = step.config.get("batch_size")
+                if batch_size:
+                    lines.append(f"        # Load to target in batches of {batch_size} rows")
+                    lines.append(f"        import math")
+                    lines.append(f"        for name, df in self.dataframes.items():")
+                    lines.append(f"            total_batches = math.ceil(len(df) / {batch_size})")
+                    lines.append(f"            for batch_num in range(total_batches):")
+                    lines.append(f"                start = batch_num * {batch_size}")
+                    lines.append(f"                end = min(start + {batch_size}, len(df))")
+                    lines.append(f"                batch = df.iloc[start:end]")
+                    lines.append(
+                        f'                logger.info("Loading batch %d/%d (%d rows)'
+                        f' for %s", batch_num + 1, total_batches, len(batch), name)')
+                    lines.append(f"                # Write batch to target")
+                    lines.append(
+                        f"                batch.to_csv("
+                        f"f'output/{{name}}_part{{batch_num + 1:03d}}.csv', index=False)")
+                else:
+                    lines.append(f"        # Load to target data warehouse")
+                    lines.append(f"        for name, df in self.dataframes.items():")
+                    lines.append(f"            df.to_csv(f'output/{{name}}.csv', index=False)")
+                    lines.append(f'            logger.info("Loaded %d rows for %s", len(df), name)')
 
             lines.append(f'        self.metrics["{step.name}"] = {{"duration_s": round(time.time() - start, 3)}}')
             lines.append(f'        logger.info("Step {step.name} completed")')
