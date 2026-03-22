@@ -1,0 +1,7 @@
+reportlab
+requests
+beautifulsoup4
+python-slugify
+gitpython
+selenium
+chromedriver-autoinstaller
