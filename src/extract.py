@@ -4,15 +4,19 @@ import pandas as pd
 
 def connect_to_postgres(dbname, host, port, user, password):
     """Connects to a local or remote PostgreSQL database"""
-    conn = psycopg2.connect(
-        dbname=dbname,
-        host=host,
-        port=port,
-        user=user,
-        password=password
-    )
-    print("✅ Connected to PostgreSQL")
-    return conn
+    try:
+        conn = psycopg2.connect(
+            dbname=dbname,
+            host=host,
+            port=port,
+            user=user,
+            password=password
+        )
+        print("✅ Connected to PostgreSQL")
+        return conn
+    except psycopg2.OperationalError as e:
+        print(f"❌ Failed to connect to PostgreSQL: {e}")
+        raise
 
 
 def extract_vehicle_sales_data(dbname, host, port, user, password):
@@ -44,7 +48,14 @@ def extract_vehicle_sales_data(dbname, host, port, user, password):
     LEFT JOIN service_records sr ON v.vin = sr.vin
     """
 
-    df = pd.read_sql(query, conn)
+    try:
+        df = pd.read_sql(query, conn)
+    except pd.io.sql.DatabaseError as e:
+        print(f"❌ Failed to execute extraction query: {e}")
+        raise
+    finally:
+        conn.close()
+        print("🔒 Database connection closed")
 
     # Convert dates to datetime objects
     df['sale_date'] = pd.to_datetime(df['sale_date'], errors='coerce')
