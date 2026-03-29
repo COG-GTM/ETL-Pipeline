@@ -1,4 +1,7 @@
-psycopg2-binary
 pandas
+psycopg2-binary
 boto3
 python-dotenv
+pyarrow
+pytest
+pytest-mock
