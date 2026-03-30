@@ -3,7 +3,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from src.extract import extract_vehicle_sales_data
-from src.transform import identify_and_remove_duplicated_data
+from src.transform import identify_and_remove_duplicated_data, validate_vehicle_sales_schema
 from src.load_data_to_s3 import df_to_s3
 
 # Load environment variables (only needed for local/dev testing)
@@ -30,6 +30,11 @@ print("✅ Extraction complete")
 print("\n🧹 Removing duplicated rows...")
 vehicle_sales_deduped = identify_and_remove_duplicated_data(vehicle_sales_df)
 print("✅ Deduplication complete")
+
+# Step 2.5: Validate schema
+print("\n🔍 Validating data schema...")
+validate_vehicle_sales_schema(vehicle_sales_deduped)
+print("✅ Validation complete")
 
 # Step 3: Upload to S3
 print("\n☁️ Uploading cleaned data to S3...")
