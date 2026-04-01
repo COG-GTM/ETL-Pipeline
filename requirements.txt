@@ -2,3 +2,4 @@ psycopg2-binary
 pandas
 boto3
 python-dotenv
+pytest>=7.0.0
