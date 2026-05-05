@@ -1,19 +1,29 @@
 version: '3.8'
-
 services:
   postgres:
     image: postgres:15
-    container_name: local-postgres
+    environment:
+      POSTGRES_DB: etl_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: mysecretpassword
-      POSTGRES_DB: etl_db
     volumes:
-      - pgdata:/var/lib/postgresql/data
       - ./init:/docker-entrypoint-initdb.d
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d etl_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  etl:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
 
 volumes:
   pgdata:
-
