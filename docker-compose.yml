@@ -11,11 +11,17 @@ services:
     volumes:
       - ./init:/docker-entrypoint-initdb.d
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d etl_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   etl:
     build: .
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     env_file:
       - .env
 
