@@ -349,6 +349,14 @@ def run_demo() -> None:
     print(f"\n  First 5 rows:")
     print(consolidated.head().to_string(index=False, max_cols=10))
 
+    print("\n  --- Canonical Schema Transform ---")
+    from src.transform_canonical import transform_all
+    canonical_output = os.path.join(DEMO_DIR, "output", "canonical_records.json")
+    os.makedirs(os.path.dirname(canonical_output), exist_ok=True)
+    canonical_df = transform_all(SAMPLE_DATA_DIR, canonical_output)
+    print(f"  Canonical records: {canonical_df.shape[0]} rows x {canonical_df.shape[1]} columns")
+    print(f"  Output written to: {canonical_output}")
+
     # =========================================================================
     # FINAL SUMMARY
     # =========================================================================
