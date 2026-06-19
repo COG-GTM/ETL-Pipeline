@@ -49,6 +49,35 @@ class DataConsolidator:
         })
         return df
 
+    def load_json_with_explode(
+        self,
+        name: str,
+        file_path: str,
+        record_path: str | list[str],
+        meta: list[Any],
+    ) -> pd.DataFrame:
+        with open(file_path, "r") as f:
+            data = json.load(f)
+
+        df = pd.json_normalize(
+            data,
+            record_path=record_path,
+            meta=meta,
+            errors="ignore",
+        )
+
+        self.sources[name] = df
+        self.lineage.append({
+            "action": "load_source",
+            "source_name": name,
+            "file_path": file_path,
+            "format": "json",
+            "rows": len(df),
+            "columns": list(df.columns),
+            "timestamp": datetime.now().isoformat(),
+        })
+        return df
+
     def _parse_xml(self, file_path: str) -> pd.DataFrame:
         tree = ET.parse(file_path)
         root = tree.getroot()
