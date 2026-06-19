@@ -56,6 +56,26 @@ class DataConsolidator:
         record_path: str | list[str],
         meta: list[Any],
     ) -> pd.DataFrame:
+        """Load a JSON file and explode a nested array into one row per item.
+
+        Uses ``pd.json_normalize`` with ``record_path`` and ``meta`` so each
+        element of the nested array becomes its own row while the parent-level
+        fields are carried along as additional columns. Missing meta paths
+        (e.g. a ``null`` parent object) are filled with ``NaN`` rather than
+        raising. The loaded frame is registered in ``self.sources`` and the
+        load is recorded in ``self.lineage`` (matching ``load_source``).
+
+        Args:
+            name: Logical name used to register the source in ``self.sources``.
+            file_path: Path to the JSON file.
+            record_path: Path to the nested list to explode (forwarded to
+                ``pd.json_normalize``).
+            meta: Parent-level fields to retain on each exploded row
+                (forwarded to ``pd.json_normalize``).
+
+        Returns:
+            The normalized DataFrame.
+        """
         with open(file_path, "r") as f:
             data = json.load(f)
 
