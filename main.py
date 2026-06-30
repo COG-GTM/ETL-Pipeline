@@ -21,13 +21,16 @@ aws_secret_access_key = os.getenv("aws_secret_access_key_id")
 # Track start time
 start_time = datetime.now()
 
-# Step 1: Extract data
+# Step 1: Extract data (deduplicated at the database via SELECT DISTINCT)
 print("\n🚗 Extracting and transforming vehicle sales + service data...")
 vehicle_sales_df = extract_vehicle_sales_data(dbname, host, port, user, password)
 print("✅ Extraction complete")
 
-# Step 2: Remove duplicates
-print("\n🧹 Removing duplicated rows...")
+# Step 2: Safety-net deduplication.
+# Deduplication now happens in the SQL extraction query, so this in-memory
+# pass should find zero duplicates. It is kept as a defensive guard in case
+# the extraction query changes.
+print("\n🧹 Verifying no duplicated rows remain...")
 vehicle_sales_deduped = identify_and_remove_duplicated_data(vehicle_sales_df)
 print("✅ Deduplication complete")
 

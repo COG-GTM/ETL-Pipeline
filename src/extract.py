@@ -25,8 +25,11 @@ def extract_vehicle_sales_data(dbname, host, port, user, password):
     """
     conn = connect_to_postgres(dbname, host, port, user, password)
 
+    # Deduplicate at the database with SELECT DISTINCT so duplicate rows are
+    # never transferred or held in memory. This matches the previous pandas
+    # drop_duplicates(keep='first') over the full set of selected columns.
     query = """
-    SELECT
+    SELECT DISTINCT
         v.vin,
         v.model,
         v.year,
@@ -35,7 +38,7 @@ def extract_vehicle_sales_data(dbname, host, port, user, password):
         s.sale_date,
         s.sale_price,
         s.buyer_name,
-        COALESCE(sr.service_date, NULL) AS service_date,
+        sr.service_date,
         COALESCE(sr.service_type, 'Unknown') AS service_type,
         COALESCE(sr.service_cost, 0) AS service_cost
     FROM vehicles v
@@ -45,6 +48,7 @@ def extract_vehicle_sales_data(dbname, host, port, user, password):
     """
 
     df = pd.read_sql(query, conn)
+    conn.close()
 
     # Convert dates to datetime objects
     df['sale_date'] = pd.to_datetime(df['sale_date'], errors='coerce')
