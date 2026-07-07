@@ -34,7 +34,7 @@ print("✅ Deduplication complete")
 # Step 3: Upload to S3
 print("\n☁️ Uploading cleaned data to S3...")
 s3_bucket = 'cognition-devin'
-key = 'auto_oem/etl/vehicle_sales_deduped.csv'
+key = 'auto_oem/etl/vehicle_sales_deduped.parquet'
 
 df_to_s3(vehicle_sales_deduped, key, s3_bucket, aws_access_key_id, aws_secret_access_key)
 print("✅ Data successfully uploaded to S3")
