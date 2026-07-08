@@ -2,4 +2,4 @@ psycopg2-binary
 pandas
 boto3
 python-dotenv
-pyarrow
+pyarrow>=14.0.1
