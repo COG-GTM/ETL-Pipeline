@@ -6,7 +6,7 @@ This is an ETL (Extract, Transform, Load) pipeline that processes vehicle sales 
 ## Core Architecture
 - **Extract**: PostgreSQL → Pandas DataFrame (src/extract.py)
 - **Transform**: Data cleaning and deduplication (src/transform.py)  
-- **Load**: DataFrame → S3 CSV (src/load_data_to_s3.py)
+- **Load**: DataFrame → S3 Parquet (src/load_data_to_s3.py)
 - **Orchestration**: main.py coordinates the entire pipeline
 
 ## Development Environment Setup
@@ -82,7 +82,7 @@ Create `.env` file from `.env.example` with:
 ### S3 Best Practices
 - Use boto3 for AWS operations
 - Handle AWS exceptions gracefully
-- Use StringIO for in-memory CSV operations
+- Use BytesIO for in-memory Parquet operations
 - Set appropriate S3 bucket permissions
 - Use descriptive S3 keys with folder structure
 
