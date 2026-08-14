@@ -8,7 +8,7 @@ WORKDIR /app
 COPY . /app
 
 # Installs all the libraries we will need to execute the code
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Tell Docker the command to run inside the container
 CMD ["python", "./main.py"]
