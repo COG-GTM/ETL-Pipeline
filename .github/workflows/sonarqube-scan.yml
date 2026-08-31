@@ -83,15 +83,19 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
         run: |
-          # File paths come from PR content. Keep only allowlisted path characters
-          # so a crafted name cannot carry prose, shell or prompt syntax, and emit
-          # a single-line JSON array so it cannot inject extra step outputs.
-          CHANGED_FILES=$(curl -s \
+          # File paths come from PR content. Paths outside a conservative safe set are
+          # withheld rather than rewritten, so the agent is never handed a path that does
+          # not exist and hostile names never reach it. jq -c keeps each output on one
+          # line so a path cannot inject extra step outputs.
+          FILES_RESPONSE=$(curl -s \
             -H "Authorization: Bearer $GH_TOKEN" \
-            "$API_URL/repos/$REPO/pulls/$PR_NUMBER/files" \
-            | jq -c '[.[].filename | gsub("[^A-Za-z0-9._/-]"; "?") | .[0:200]][0:100]')
+            "$API_URL/repos/$REPO/pulls/$PR_NUMBER/files")
+          CHANGED_FILES=$(echo "$FILES_RESPONSE" | jq -c '[.[].filename | select(test("^[A-Za-z0-9._/-]{1,200}$"))][0:100]')
+          WITHHELD_FILES=$(echo "$FILES_RESPONSE" | jq '[.[].filename | select(test("^[A-Za-z0-9._/-]{1,200}$") | not)] | length')
           echo "files_json=$CHANGED_FILES" >> "$GITHUB_OUTPUT"
-          echo "Changed files (sanitized): $CHANGED_FILES"
+          echo "withheld_files=$WITHHELD_FILES" >> "$GITHUB_OUTPUT"
+          echo "Changed files (safe subset): $CHANGED_FILES"
+          echo "Paths withheld as unsafe: $WITHHELD_FILES"
 
       - name: Extract SonarCloud Issues
         id: extract-issues
@@ -119,17 +123,19 @@ jobs:
 
           FAILED_CONDITIONS=$(echo "$QG_STATUS" | jq -c '[.projectStatus.conditions[]? | select(.status=="ERROR") | {metric: .metricKey, actual: .actualValue, threshold: .errorThreshold}]')
 
-          # Issue messages are derived from PR code and are dropped: only structured
-          # identifiers (issue key, rule id, component path, line) are forwarded, with
-          # the attacker-influenced ones reduced to an allowlisted character set.
-          ISSUE_DETAILS=$(echo "$ALL_ISSUES" | jq -c '[.issues[] | {
-            key: (.key // "" | gsub("[^A-Za-z0-9._:-]"; "?") | .[0:100]),
-            type: (.type // "" | gsub("[^A-Z_]"; "?")),
-            severity: (.severity // "" | gsub("[^A-Z_]"; "?")),
-            rule: (.rule // "" | gsub("[^A-Za-z0-9._:-]"; "?") | .[0:100]),
-            component: (.component // "" | gsub("[^A-Za-z0-9._/:-]"; "?") | .[0:200]),
-            line: (.line // null)
-          }][0:100]')
+          # Issue messages are derived from PR code and are dropped entirely: only
+          # structured identifiers are forwarded, and any value that is not in its
+          # expected shape becomes null rather than being rewritten.
+          ISSUE_DETAILS=$(echo "$ALL_ISSUES" | jq -c '
+            def safe(re): if type == "string" and test(re) then . else null end;
+            [.issues[] | {
+              key: (.key | safe("^[A-Za-z0-9._:-]{1,100}$")),
+              type: (.type | safe("^[A-Z_]{1,30}$")),
+              severity: (.severity | safe("^[A-Z_]{1,30}$")),
+              rule: (.rule | safe("^[A-Za-z0-9._:-]{1,100}$")),
+              component: (.component | safe("^[A-Za-z0-9._/:-]{1,200}$")),
+              line: (.line | if type == "number" then . else null end)
+            }][0:100]')
 
           # Counts must be plain integers so they cannot carry text into the prompt.
           is_count() { printf '%s' "$1" | grep -Eq '^[0-9]+$'; }
@@ -178,11 +184,18 @@ jobs:
           INPUT_ISSUE_DETAILS: ${{ steps.extract-issues.outputs.issue_details }}
           INPUT_FAILED_CONDITIONS: ${{ steps.extract-issues.outputs.failed_conditions }}
           INPUT_CHANGED_FILES: ${{ steps.changed-files.outputs.files_json }}
+          INPUT_WITHHELD_FILES: ${{ steps.changed-files.outputs.withheld_files }}
         run: |
           echo "Triggering Devin AI for vulnerability remediation..."
 
-          if ! printf '%s' "$HEAD_REF" | grep -Eq '^[A-Za-z0-9._/-]{1,255}$'; then
-            echo "Refusing to trigger remediation: unexpected branch name"
+          case "$HEAD_REF" in
+            ''|-*)
+              echo "Refusing to trigger remediation: unexpected branch name"
+              exit 1
+              ;;
+          esac
+          if ! git check-ref-format --branch "$HEAD_REF" >/dev/null 2>&1; then
+            echo "Refusing to trigger remediation: invalid branch name"
             exit 1
           fi
 
@@ -238,6 +251,8 @@ jobs:
           ## Notes
           - Raw SonarCloud issue messages are intentionally omitted; identify each issue from its
             \`rule\` id and \`component\`/\`line\`, and consult the Sonar rule documentation for the fix.
+          - Paths withheld because they contain characters outside the safe set: ${INPUT_WITHHELD_FILES}.
+            Do not guess them; if a fix would require one, make no change and say so in the PR comment.
           - Apply the standard secure fix for each rule (e.g. parameterized queries for SQL injection,
             input validation, safe deserialization).
           - Use \`git diff --name-only\` to verify which files you changed.
