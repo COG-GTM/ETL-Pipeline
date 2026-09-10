@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 from typing import Any
@@ -8,9 +9,17 @@ _MAX_IDENTIFIER_LEN = 63
 
 def quote_identifier(name: str) -> str:
     """Validate a SQL identifier against a strict allowlist and double-quote it."""
-    if not isinstance(name, str) or not _IDENTIFIER_RE.match(name) or len(name) > _MAX_IDENTIFIER_LEN:
+    if not isinstance(name, str) or not _IDENTIFIER_RE.fullmatch(name) or len(name) > _MAX_IDENTIFIER_LEN:
         raise ValueError(f"Invalid SQL identifier: {name!r}")
     return f'"{name}"'
+
+
+def _truncate_identifier(name: str) -> str:
+    """Shorten an identifier to the max length, keeping it unique via a hash suffix."""
+    if len(name) <= _MAX_IDENTIFIER_LEN:
+        return name
+    digest = hashlib.sha1(name.encode()).hexdigest()[:8]
+    return f"{name[:_MAX_IDENTIFIER_LEN - len(digest) - 1]}_{digest}"
 
 
 class SchemaDetector:
@@ -68,7 +77,7 @@ class SchemaDetector:
         name = re.sub(r"_+", "_", name).strip("_")
         if not name or not re.match(r"[a-z_]", name):
             name = f"t_{name}" if name else "t_unnamed"
-        return name[:_MAX_IDENTIFIER_LEN]
+        return _truncate_identifier(name)
 
     def _map_dtype(self, col_info: dict[str, Any]) -> str:
         dtype = col_info["dtype"]
@@ -105,7 +114,7 @@ class SchemaDetector:
         lines.append(");")
 
         for idx_col in schema.get("indexes_recommended", []):
-            idx_name = quote_identifier(f"idx_{raw_table_name}_{idx_col}"[:_MAX_IDENTIFIER_LEN])
+            idx_name = quote_identifier(_truncate_identifier(f"idx_{raw_table_name}_{idx_col}"))
             lines.append(f"CREATE INDEX {idx_name} ON {table_name} ({quote_identifier(idx_col)});")
 
         return "\n".join(lines)
