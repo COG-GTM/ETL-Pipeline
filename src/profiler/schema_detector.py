@@ -1,4 +1,16 @@
+import os
+import re
 from typing import Any
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_MAX_IDENTIFIER_LEN = 63
+
+
+def quote_identifier(name: str) -> str:
+    """Validate a SQL identifier against a strict allowlist and double-quote it."""
+    if not isinstance(name, str) or not _IDENTIFIER_RE.match(name) or len(name) > _MAX_IDENTIFIER_LEN:
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return f'"{name}"'
 
 
 class SchemaDetector:
@@ -51,9 +63,12 @@ class SchemaDetector:
         return schema
 
     def _infer_table_name(self, source: str) -> str:
-        import os
         base = os.path.splitext(os.path.basename(source))[0]
-        return base.lower().replace("-", "_").replace(" ", "_")
+        name = re.sub(r"[^a-z0-9_]", "_", base.lower())
+        name = re.sub(r"_+", "_", name).strip("_")
+        if not name or not re.match(r"[a-z_]", name):
+            name = f"t_{name}" if name else "t_unnamed"
+        return name[:_MAX_IDENTIFIER_LEN]
 
     def _map_dtype(self, col_info: dict[str, Any]) -> str:
         dtype = col_info["dtype"]
@@ -68,12 +83,13 @@ class SchemaDetector:
 
     def generate_ddl(self, schema: dict[str, Any]) -> str:
         lines = []
-        table_name = schema["detected_table_name"]
+        raw_table_name = schema["detected_table_name"]
+        table_name = quote_identifier(raw_table_name)
         lines.append(f"CREATE TABLE {table_name} (")
 
         col_defs = []
         for col in schema["columns"]:
-            parts = [f"    {col['name']}"]
+            parts = [f"    {quote_identifier(col['name'])}"]
             parts.append(col["target_dtype"])
             if not col["nullable"]:
                 parts.append("NOT NULL")
@@ -82,14 +98,15 @@ class SchemaDetector:
             col_defs.append(" ".join(parts))
 
         if schema["primary_key_candidates"]:
-            pk_cols = ", ".join(schema["primary_key_candidates"][:1])
+            pk_cols = ", ".join(quote_identifier(c) for c in schema["primary_key_candidates"][:1])
             col_defs.append(f"    PRIMARY KEY ({pk_cols})")
 
         lines.append(",\n".join(col_defs))
         lines.append(");")
 
         for idx_col in schema.get("indexes_recommended", []):
-            lines.append(f"CREATE INDEX idx_{table_name}_{idx_col} ON {table_name} ({idx_col});")
+            idx_name = quote_identifier(f"idx_{raw_table_name}_{idx_col}"[:_MAX_IDENTIFIER_LEN])
+            lines.append(f"CREATE INDEX {idx_name} ON {table_name} ({quote_identifier(idx_col)});")
 
         return "\n".join(lines)
 
