@@ -1,4 +1,36 @@
+import hashlib
+import os
+import re
 from typing import Any
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_MAX_IDENTIFIER_LEN = 63
+
+
+def quote_identifier(name: str) -> str:
+    """Validate a SQL identifier against a strict allowlist and double-quote it."""
+    if not isinstance(name, str) or not _IDENTIFIER_RE.fullmatch(name) or len(name) > _MAX_IDENTIFIER_LEN:
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return f'"{name}"'
+
+
+def sanitize_identifier(raw: str, fallback: str = "unnamed") -> str:
+    """Normalize an externally-supplied name into a safe, lowercase SQL identifier."""
+    name = re.sub(r"[^a-z0-9_]", "_", str(raw).lower())
+    name = re.sub(r"_+", "_", name).strip("_")
+    if not name:
+        name = fallback
+    elif not re.match(r"[a-z_]", name):
+        name = f"_{name}"
+    return _truncate_identifier(name)
+
+
+def _truncate_identifier(name: str) -> str:
+    """Shorten an identifier to the max length, keeping it unique via a hash suffix."""
+    if len(name) <= _MAX_IDENTIFIER_LEN:
+        return name
+    digest = hashlib.sha256(name.encode()).hexdigest()[:8]
+    return f"{name[:_MAX_IDENTIFIER_LEN - len(digest) - 1]}_{digest}"
 
 
 class SchemaDetector:
@@ -20,9 +52,22 @@ class SchemaDetector:
             "indexes_recommended": [],
         }
 
-        for col_name, col_info in profile["columns"].items():
+        used_names: set[str] = set()
+        for source_name, col_info in profile["columns"].items():
+            col_name = sanitize_identifier(source_name, fallback="column")
+            if col_name in used_names:
+                suffix = 2
+                while True:
+                    candidate = _truncate_identifier(f"{col_name}_{suffix}")
+                    if candidate not in used_names:
+                        col_name = candidate
+                        break
+                    suffix += 1
+            used_names.add(col_name)
+
             col_schema = {
                 "name": col_name,
+                "source_name": source_name,
                 "source_dtype": col_info["dtype"],
                 "target_dtype": self._map_dtype(col_info),
                 "nullable": col_info["null_count"] > 0,
@@ -51,9 +96,8 @@ class SchemaDetector:
         return schema
 
     def _infer_table_name(self, source: str) -> str:
-        import os
         base = os.path.splitext(os.path.basename(source))[0]
-        return base.lower().replace("-", "_").replace(" ", "_")
+        return sanitize_identifier(base, fallback="t_unnamed")
 
     def _map_dtype(self, col_info: dict[str, Any]) -> str:
         dtype = col_info["dtype"]
@@ -68,12 +112,13 @@ class SchemaDetector:
 
     def generate_ddl(self, schema: dict[str, Any]) -> str:
         lines = []
-        table_name = schema["detected_table_name"]
+        raw_table_name = schema["detected_table_name"]
+        table_name = quote_identifier(raw_table_name)
         lines.append(f"CREATE TABLE {table_name} (")
 
         col_defs = []
         for col in schema["columns"]:
-            parts = [f"    {col['name']}"]
+            parts = [f"    {quote_identifier(col['name'])}"]
             parts.append(col["target_dtype"])
             if not col["nullable"]:
                 parts.append("NOT NULL")
@@ -82,14 +127,15 @@ class SchemaDetector:
             col_defs.append(" ".join(parts))
 
         if schema["primary_key_candidates"]:
-            pk_cols = ", ".join(schema["primary_key_candidates"][:1])
+            pk_cols = ", ".join(quote_identifier(c) for c in schema["primary_key_candidates"][:1])
             col_defs.append(f"    PRIMARY KEY ({pk_cols})")
 
         lines.append(",\n".join(col_defs))
         lines.append(");")
 
         for idx_col in schema.get("indexes_recommended", []):
-            lines.append(f"CREATE INDEX idx_{table_name}_{idx_col} ON {table_name} ({idx_col});")
+            idx_name = quote_identifier(_truncate_identifier(f"idx_{raw_table_name}_{idx_col}"))
+            lines.append(f"CREATE INDEX {idx_name} ON {table_name} ({quote_identifier(idx_col)});")
 
         return "\n".join(lines)
 
