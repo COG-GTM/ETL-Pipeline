@@ -29,7 +29,7 @@ def _truncate_identifier(name: str) -> str:
     """Shorten an identifier to the max length, keeping it unique via a hash suffix."""
     if len(name) <= _MAX_IDENTIFIER_LEN:
         return name
-    digest = hashlib.sha1(name.encode()).hexdigest()[:8]
+    digest = hashlib.sha256(name.encode()).hexdigest()[:8]
     return f"{name[:_MAX_IDENTIFIER_LEN - len(digest) - 1]}_{digest}"
 
 
