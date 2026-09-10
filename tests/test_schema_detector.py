@@ -115,6 +115,15 @@ def test_nested_json_headers_and_collisions(detector):
     assert names == ["supplier_id", "supplier_id_2", "supplier_id_3"]
 
 
+def test_duplicate_long_headers_stay_within_limit(detector):
+    profile = {"source": "d.csv", "columns": {"a" * 70: _col(), "A" * 70: _col()}}
+    schema = detector.detect_schema(profile)
+    names = [c["name"] for c in schema["columns"]]
+    assert names[0] != names[1]
+    assert all(len(n) <= 63 for n in names)
+    detector.generate_ddl(schema)
+
+
 def test_ddl_rejects_unsanitized_column_name(detector):
     schema = {
         "detected_table_name": "t",

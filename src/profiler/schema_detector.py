@@ -57,9 +57,12 @@ class SchemaDetector:
             col_name = sanitize_identifier(source_name, fallback="column")
             if col_name in used_names:
                 suffix = 2
-                while f"{col_name}_{suffix}" in used_names:
+                while True:
+                    candidate = _truncate_identifier(f"{col_name}_{suffix}")
+                    if candidate not in used_names:
+                        col_name = candidate
+                        break
                     suffix += 1
-                col_name = f"{col_name}_{suffix}"
             used_names.add(col_name)
 
             col_schema = {
