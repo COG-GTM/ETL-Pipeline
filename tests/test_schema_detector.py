@@ -1,6 +1,6 @@
 import pytest
 
-from src.profiler.schema_detector import SchemaDetector, quote_identifier
+from src.profiler.schema_detector import SchemaDetector, quote_identifier, sanitize_identifier
 
 
 def _col(dtype="int64", null_count=0, unique_percentage=100.0, **extra):
@@ -33,8 +33,23 @@ def test_table_name_from_malicious_filename_is_sanitized(detector):
 
 
 def test_table_name_starting_with_digit_gets_prefix(detector):
-    assert detector._infer_table_name("2024-sales.csv") == "t_2024_sales"
+    assert detector._infer_table_name("2024-sales.csv") == "_2024_sales"
     assert detector._infer_table_name("---.csv") == "t_unnamed"
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("supplier.id", "supplier_id"),
+        ("Order Date", "order_date"),
+        ('x); DROP TABLE users;--', "x_drop_table_users"),
+        ("", "unnamed"),
+        ("1st", "_1st"),
+    ],
+)
+def test_sanitize_identifier(raw, expected):
+    assert sanitize_identifier(raw) == expected
+    quote_identifier(sanitize_identifier(raw))
 
 
 def test_long_table_name_is_truncated_uniquely(detector):
@@ -74,13 +89,42 @@ def test_long_table_name_index_names_do_not_collide(detector):
     assert all(len(n) <= 63 for n in idx_names)
 
 
-def test_ddl_rejects_malicious_column_header(detector):
+def test_malicious_column_header_is_sanitized_in_ddl(detector):
     profile = {
         "source": "data.csv",
         "columns": {"x); DROP TABLE users;--": _col(unique_percentage=50.0)},
     }
+    schema = detector.detect_schema(profile)
+    assert schema["columns"][0]["name"] == "x_drop_table_users"
+    assert schema["columns"][0]["source_name"] == "x); DROP TABLE users;--"
+    ddl = detector.generate_ddl(schema)
+    assert "DROP TABLE" not in ddl
+    assert '    "x_drop_table_users" INTEGER NOT NULL' in ddl
+
+
+def test_nested_json_headers_and_collisions(detector):
+    profile = {
+        "source": "supplier_orders.json",
+        "columns": {
+            "supplier.id": _col(),
+            "supplier_id": _col(),
+            "supplier-id": _col(),
+        },
+    }
+    names = [c["name"] for c in detector.detect_schema(profile)["columns"]]
+    assert names == ["supplier_id", "supplier_id_2", "supplier_id_3"]
+
+
+def test_ddl_rejects_unsanitized_column_name(detector):
+    schema = {
+        "detected_table_name": "t",
+        "columns": [{"name": 'x); DROP TABLE users;--', "target_dtype": "INTEGER",
+                     "nullable": True, "is_unique": False}],
+        "primary_key_candidates": [],
+        "indexes_recommended": [],
+    }
     with pytest.raises(ValueError):
-        detector.generate_ddl(detector.detect_schema(profile))
+        detector.generate_ddl(schema)
 
 
 def test_ddl_rejects_malicious_index_column(detector):

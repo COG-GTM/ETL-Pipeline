@@ -14,6 +14,17 @@ def quote_identifier(name: str) -> str:
     return f'"{name}"'
 
 
+def sanitize_identifier(raw: str, fallback: str = "unnamed") -> str:
+    """Normalize an externally-supplied name into a safe, lowercase SQL identifier."""
+    name = re.sub(r"[^a-z0-9_]", "_", str(raw).lower())
+    name = re.sub(r"_+", "_", name).strip("_")
+    if not name:
+        name = fallback
+    elif not re.match(r"[a-z_]", name):
+        name = f"_{name}"
+    return _truncate_identifier(name)
+
+
 def _truncate_identifier(name: str) -> str:
     """Shorten an identifier to the max length, keeping it unique via a hash suffix."""
     if len(name) <= _MAX_IDENTIFIER_LEN:
@@ -41,9 +52,19 @@ class SchemaDetector:
             "indexes_recommended": [],
         }
 
-        for col_name, col_info in profile["columns"].items():
+        used_names: set[str] = set()
+        for source_name, col_info in profile["columns"].items():
+            col_name = sanitize_identifier(source_name, fallback="column")
+            if col_name in used_names:
+                suffix = 2
+                while f"{col_name}_{suffix}" in used_names:
+                    suffix += 1
+                col_name = f"{col_name}_{suffix}"
+            used_names.add(col_name)
+
             col_schema = {
                 "name": col_name,
+                "source_name": source_name,
                 "source_dtype": col_info["dtype"],
                 "target_dtype": self._map_dtype(col_info),
                 "nullable": col_info["null_count"] > 0,
@@ -73,11 +94,7 @@ class SchemaDetector:
 
     def _infer_table_name(self, source: str) -> str:
         base = os.path.splitext(os.path.basename(source))[0]
-        name = re.sub(r"[^a-z0-9_]", "_", base.lower())
-        name = re.sub(r"_+", "_", name).strip("_")
-        if not name or not re.match(r"[a-z_]", name):
-            name = f"t_{name}" if name else "t_unnamed"
-        return _truncate_identifier(name)
+        return sanitize_identifier(base, fallback="t_unnamed")
 
     def _map_dtype(self, col_info: dict[str, Any]) -> str:
         dtype = col_info["dtype"]
