@@ -18,7 +18,6 @@ Run:
     python -m demo.run_demo
 """
 
-import json
 import os
 import sys
 import time
