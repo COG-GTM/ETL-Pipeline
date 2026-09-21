@@ -1,5 +1,7 @@
 from typing import Any
 
+from src.sql_identifiers import quote_identifier, safe_data_type
+
 
 class SchemaDetector:
     TYPE_MAP = {
@@ -69,12 +71,13 @@ class SchemaDetector:
     def generate_ddl(self, schema: dict[str, Any]) -> str:
         lines = []
         table_name = schema["detected_table_name"]
-        lines.append(f"CREATE TABLE {table_name} (")
+        quoted_table = quote_identifier(table_name)
+        lines.append(f"CREATE TABLE {quoted_table} (")
 
         col_defs = []
         for col in schema["columns"]:
-            parts = [f"    {col['name']}"]
-            parts.append(col["target_dtype"])
+            parts = [f"    {quote_identifier(col['name'])}"]
+            parts.append(safe_data_type(col.get("target_dtype")))
             if not col["nullable"]:
                 parts.append("NOT NULL")
             if col["is_unique"] and col["name"] not in schema.get("primary_key_candidates", []):
@@ -82,14 +85,15 @@ class SchemaDetector:
             col_defs.append(" ".join(parts))
 
         if schema["primary_key_candidates"]:
-            pk_cols = ", ".join(schema["primary_key_candidates"][:1])
+            pk_cols = ", ".join(quote_identifier(c) for c in schema["primary_key_candidates"][:1])
             col_defs.append(f"    PRIMARY KEY ({pk_cols})")
 
         lines.append(",\n".join(col_defs))
         lines.append(");")
 
         for idx_col in schema.get("indexes_recommended", []):
-            lines.append(f"CREATE INDEX idx_{table_name}_{idx_col} ON {table_name} ({idx_col});")
+            index_name = quote_identifier(f"idx_{table_name}_{idx_col}")
+            lines.append(f"CREATE INDEX {index_name} ON {quoted_table} ({quote_identifier(idx_col)});")
 
         return "\n".join(lines)
 

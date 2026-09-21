@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 
+from src.sql_identifiers import quote_identifier, safe_data_type
+
 
 class TargetModelDesigner:
     def __init__(self):
@@ -127,12 +129,12 @@ class TargetModelDesigner:
         lines.append("")
 
         for dim in self.target_model.get("dimension_tables", []):
-            lines.append(f"CREATE TABLE {dim['name']} (")
+            dim_name = dim["name"]
+            lines.append(f"CREATE TABLE {quote_identifier(dim_name)} (")
             col_defs = []
-            col_defs.append(f"    {dim['name']}_sk SERIAL PRIMARY KEY")
+            col_defs.append(f"    {quote_identifier(dim_name + '_sk')} SERIAL PRIMARY KEY")
             for col in dim["columns"]:
-                nullable = "" if not col.get("nullable", True) else ""
-                col_defs.append(f"    {col['name']} {col.get('target_dtype', 'VARCHAR(255)')}{' NOT NULL' if not col.get('nullable', True) else ''}")
+                col_defs.append(f"    {quote_identifier(col['name'])} {safe_data_type(col.get('target_dtype'))}{' NOT NULL' if not col.get('nullable', True) else ''}")
             col_defs.append("    effective_date DATE DEFAULT CURRENT_DATE")
             col_defs.append("    expiry_date DATE DEFAULT '9999-12-31'")
             col_defs.append("    is_current BOOLEAN DEFAULT TRUE")
@@ -141,10 +143,11 @@ class TargetModelDesigner:
 
         fact = self.target_model.get("fact_table")
         if fact:
-            lines.append(f"CREATE TABLE {fact['name']} (")
-            col_defs = [f"    {fact['name']}_sk SERIAL PRIMARY KEY"]
+            fact_name = fact["name"]
+            lines.append(f"CREATE TABLE {quote_identifier(fact_name)} (")
+            col_defs = [f"    {quote_identifier(fact_name + '_sk')} SERIAL PRIMARY KEY"]
             for col in fact["columns"]:
-                col_defs.append(f"    {col['name']} {col.get('target_dtype', 'VARCHAR(255)')}{' NOT NULL' if not col.get('nullable', True) else ''}")
+                col_defs.append(f"    {quote_identifier(col['name'])} {safe_data_type(col.get('target_dtype'))}{' NOT NULL' if not col.get('nullable', True) else ''}")
             col_defs.append("    etl_load_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
             col_defs.append("    etl_batch_id VARCHAR(50)")
             lines.append(",\n".join(col_defs))
