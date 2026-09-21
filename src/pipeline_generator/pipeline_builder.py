@@ -1,4 +1,6 @@
 import json
+import os
+import re
 from datetime import datetime
 from typing import Any
 
@@ -138,8 +140,8 @@ class PipelineBuilder:
         lines = []
         lines.append('"""')
         lines.append("Auto-generated ETL Pipeline")
-        lines.append(f"Generated: {self.pipeline_config.get('generated_at', 'N/A')}")
-        lines.append(f"Steps: {self.pipeline_config.get('total_steps', 0)}")
+        lines.append(f"Generated: {self._comment_text(self.pipeline_config.get('generated_at', 'N/A'))}")
+        lines.append(f"Steps: {self._comment_text(self.pipeline_config.get('total_steps', 0))}")
         lines.append('"""')
         lines.append("import logging")
         lines.append("import time")
@@ -162,8 +164,7 @@ class PipelineBuilder:
         lines.append("")
 
         for step in self.steps:
-            method_name = step.name.lower().replace("-", "_").replace(" ", "_")
-            lines.append(f"        self._{method_name}()")
+            lines.append(f"        self._{self._safe_ident(step.name)}()")
 
         lines.append("")
         lines.append("        elapsed = datetime.now() - self.start_time")
@@ -172,42 +173,47 @@ class PipelineBuilder:
         lines.append("")
 
         for step in self.steps:
-            method_name = step.name.lower().replace("-", "_").replace(" ", "_")
-            lines.append(f"    def _{method_name}(self):")
-            lines.append(f'        logger.info("Executing step: {step.name}")')
-            lines.append(f"        start = time.time()")
+            step_literal = self._py_literal(step.name)
+            lines.append(f"    def _{self._safe_ident(step.name)}(self):")
+            lines.append(f"        logger.info(\"Executing step: %s\", {step_literal})")
+            lines.append("        start = time.time()")
 
             if step.step_type == "extract":
                 fmt = step.config.get("format", "csv")
                 source = step.config.get("source", "unknown")
-                safe = self._safe_name(source)
+                safe = self._py_literal(self._safe_name(source))
+                source_literal = self._py_literal(source)
                 if fmt == "csv":
-                    lines.append(f'        self.dataframes["{safe}"] = pd.read_csv("{source}")')
+                    lines.append(f"        self.dataframes[{safe}] = pd.read_csv({source_literal})")
                 elif fmt == "json":
-                    lines.append(f'        self.dataframes["{safe}"] = pd.read_json("{source}")')
+                    lines.append(f"        self.dataframes[{safe}] = pd.read_json({source_literal})")
                 else:
-                    lines.append(f'        # Extract from {fmt} source: {source}')
-                    lines.append(f'        pass')
+                    lines.append(
+                        f"        # Extract from {self._comment_text(fmt)} source: {self._comment_text(source)}"
+                    )
+                    lines.append("        pass")
             elif step.step_type == "validate":
-                lines.append(f"        # Run quality validation checks")
-                lines.append(f"        pass")
+                lines.append("        # Run quality validation checks")
+                lines.append("        pass")
             elif step.step_type == "transform":
                 ops = step.config.get("operations", [])
                 if ops:
                     for op in ops:
-                        lines.append(f'        # Transform: {op}')
+                        lines.append(f"        # Transform: {self._comment_text(op)}")
                 else:
-                    lines.append(f"        # Apply target model transformations")
-                lines.append(f"        pass")
+                    lines.append("        # Apply target model transformations")
+                lines.append("        pass")
             elif step.step_type == "consolidate":
-                lines.append(f"        # Consolidate multiple data sources")
-                lines.append(f"        pass")
+                lines.append("        # Consolidate multiple data sources")
+                lines.append("        pass")
             elif step.step_type == "load":
-                lines.append(f"        # Load to target data warehouse")
-                lines.append(f"        pass")
+                lines.append("        # Load to target data warehouse")
+                lines.append("        pass")
 
-            lines.append(f'        self.metrics["{step.name}"] = {{"duration_s": round(time.time() - start, 3)}}')
-            lines.append(f'        logger.info("Step {step.name} completed")')
+            lines.append(
+                f"        self.metrics[{step_literal}] = {{\"duration_s\": round(time.time() - start, 3)}}"
+            )
+            lines.append(f"        logger.info(\"Step %s completed\", {step_literal})")
             lines.append("")
 
         return "\n".join(lines)
@@ -279,7 +285,19 @@ class PipelineBuilder:
         return [col for col, count in all_columns.items() if count > 1]
 
     def _safe_name(self, name: str) -> str:
-        import os
-        import re
-        base = os.path.splitext(os.path.basename(name))[0]
+        base = os.path.splitext(os.path.basename(str(name)))[0]
         return re.sub(r"[^a-zA-Z0-9_]", "_", base).lower()
+
+    def _safe_ident(self, name: str) -> str:
+        ident = re.sub(r"[^a-zA-Z0-9_]", "_", str(name)).lower()
+        if not ident or ident[0].isdigit():
+            ident = f"step_{ident}"
+        return ident
+
+    def _py_literal(self, value: Any) -> str:
+        text = repr(str(value))
+        return text.replace('"""', '\\"\\"\\"')
+
+    def _comment_text(self, value: Any) -> str:
+        text = re.sub(r"\s+", " ", str(value)).strip()
+        return text.replace('"""', "").replace("'''", "")
