@@ -42,7 +42,8 @@ jobs:
           restore-keys: ${{ runner.os }}-sonar
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        # SonarSource/sonarcloud-github-action v2.0.0
+        uses: SonarSource/sonarcloud-github-action@4b4d7634dab97dcee0b75763a54a6dc92a9e6bc1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -50,10 +51,47 @@ jobs:
       - name: Quality Gate Check
         id: quality-gate
         continue-on-error: true
-        uses: SonarSource/sonarqube-quality-gate-action@master
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          REPORT_FILE=.scannerwork/report-task.txt
+          if [ ! -f "$REPORT_FILE" ]; then
+            echo "Scanner report $REPORT_FILE not found - cannot evaluate the quality gate."
+            exit 1
+          fi
+
+          CE_TASK_URL=$(grep '^ceTaskUrl=' "$REPORT_FILE" | cut -d '=' -f 2-)
+          echo "Polling analysis task: $CE_TASK_URL"
+
+          TASK_STATUS=""
+          for _ in $(seq 1 30); do
+            TASK=$(curl -sf -u "$SONAR_TOKEN:" "$CE_TASK_URL")
+            TASK_STATUS=$(echo "$TASK" | jq -r '.task.status')
+            case "$TASK_STATUS" in
+              SUCCESS|FAILED|CANCELED) break ;;
+            esac
+            sleep 5
+          done
+
+          if [ "$TASK_STATUS" != "SUCCESS" ]; then
+            echo "Analysis task did not complete successfully (status: $TASK_STATUS)."
+            exit 1
+          fi
+
+          ANALYSIS_ID=$(echo "$TASK" | jq -r '.task.analysisId')
+          QG=$(curl -sf -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
+          QG_STATUS=$(echo "$QG" | jq -r '.projectStatus.status')
+
+          echo "quality_gate_status=$QG_STATUS" >> "$GITHUB_OUTPUT"
+          echo "Quality gate status: $QG_STATUS"
+
+          if [ "$QG_STATUS" != "OK" ]; then
+            exit 1
+          fi
 
       - name: Check if Devin Remediation Commit
         id: check-devin
