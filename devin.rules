@@ -19,7 +19,10 @@ This is an ETL (Extract, Transform, Load) pipeline that processes vehicle sales 
 
 ### Local Development Commands
 ```bash
-# Start PostgreSQL database
+# Create .env from .env.example and set POSTGRES_PASSWORD (required by docker-compose)
+cp .env.example .env
+
+# Start PostgreSQL database (bound to 127.0.0.1 only)
 docker-compose up -d postgres
 
 # Install dependencies
@@ -40,6 +43,9 @@ docker-compose down
 Create `.env` file from `.env.example` with:
 - Database credentials (DB_NAME, DB_HOST, DB_PORT, DB_USER, DB_PASSWORD)
 - AWS credentials (aws_access_key_id, aws_secret_access_key_id)
+- Local container credentials (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, POSTGRES_PORT)
+
+`.env` is gitignored; never commit database passwords.
 
 ## Code Style Guidelines
 
