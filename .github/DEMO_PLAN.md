@@ -102,7 +102,7 @@ Devin will:
 - Clone the repo and check out the PR branch
 - Read the SonarCloud findings
 - Replace the string-formatted SQL with a parameterized query
-- Commit with `[devin-fix]` tag and push
+- Commit the fix and push
 - Post a comment on the PR explaining the fix
 
 ### Step 5: Quality Gate passes
@@ -110,7 +110,7 @@ Devin will:
 The push triggers the workflow again. This time:
 - SonarCloud scans and finds no new vulnerabilities
 - The Quality Gate passes
-- The `[devin-fix]` tag prevents another Devin session from being created
+- The push comes from Devin's GitHub account and the PR carries the `devin-remediation-triggered` label, so no new Devin session is created
 
 ---
 
