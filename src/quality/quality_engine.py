@@ -1,7 +1,33 @@
+import os
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
+
+
+def _raw_samples_enabled() -> bool:
+    return os.getenv("QUALITY_REPORT_RAW_SAMPLES", "").lower() in ("1", "true", "yes")
+
+
+def _mask_value(value: Any) -> str:
+    text = str(value)
+    if "@" in text:
+        local, _, domain = text.partition("@")
+        return f"{_mask_token(local)}@{_mask_token(domain)}"
+    return _mask_token(text)
+
+
+def _mask_token(token: str) -> str:
+    if len(token) <= 2:
+        return "*" * len(token)
+    return f"{token[0]}{'*' * (len(token) - 2)}{token[-1]}"
+
+
+def _sample_values(values: "pd.Series", limit: int = 3) -> list[str]:
+    samples = [str(v) for v in values.head(limit)]
+    if _raw_samples_enabled():
+        return samples
+    return [_mask_value(v) for v in samples]
 
 
 class QualityRule:
@@ -172,7 +198,7 @@ class DataQualityEngine:
                     email_pattern = r"^[\w.+-]+@[\w-]+\.[\w.]+$"
                     invalid = non_null[~non_null.astype(str).str.match(email_pattern)]
                     rule.passed = len(invalid) == 0
-                    rule.details = {"column": col, "invalid_count": len(invalid), "sample_invalid": list(invalid.head(3))}
+                    rule.details = {"column": col, "invalid_count": len(invalid), "sample_invalid": _sample_values(invalid)}
                     self.rules.append(rule)
 
             if "phone" in col.lower():
@@ -182,7 +208,7 @@ class DataQualityEngine:
                     phone_pattern = r"^\d{3}-\d{4}$|^\d{3}-\d{3}-\d{4}$|^\(\d{3}\)\s?\d{3}-\d{4}$"
                     invalid = non_null[~non_null.astype(str).str.match(phone_pattern)]
                     rule.passed = len(invalid) == 0
-                    rule.details = {"column": col, "invalid_count": len(invalid), "sample_invalid": list(invalid.head(3).astype(str))}
+                    rule.details = {"column": col, "invalid_count": len(invalid), "sample_invalid": _sample_values(invalid)}
                     self.rules.append(rule)
 
         for col in df.select_dtypes(include=["float64", "int64"]).columns:
