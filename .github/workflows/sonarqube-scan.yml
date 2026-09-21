@@ -58,20 +58,49 @@ jobs:
       - name: Check if Devin Remediation Commit
         id: check-devin
         env:
-          HEAD_REF: ${{ github.event.inputs.pr_branch || github.head_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+          PUSH_ACTOR: ${{ github.event.sender.login || github.actor }}
+          DEVIN_BOT_ACTORS: ${{ vars.DEVIN_BOT_ACTORS || 'devin-ai-integration[bot]' }}
+          REMEDIATION_LABEL: devin-remediation-triggered
         run: |
-          git fetch origin "$HEAD_REF"
-          COMMIT_AUTHOR=$(git log -1 --format='%an' "origin/$HEAD_REF")
-          COMMIT_MSG=$(git log -1 --format='%s' "origin/$HEAD_REF")
-          echo "Checking PR commit - Author: $COMMIT_AUTHOR"
-          echo "Commit message: $COMMIT_MSG"
+          # Loop protection relies on signals the workflow controls, not on
+          # commit metadata (author name / message), which any pusher can forge:
+          #   1. the authenticated account that pushed (github.event.sender)
+          #   2. a label this workflow applies when it triggers a session
+          echo "Push actor: $PUSH_ACTOR"
 
-          if [[ "$COMMIT_AUTHOR" == "Devin AI" ]] || [[ "$COMMIT_MSG" == *"[devin-fix]"* ]]; then
+          IS_BOT_ACTOR=false
+          while IFS= read -r actor; do
+            actor=$(echo "$actor" | tr -d '[:space:]')
+            [ -z "$actor" ] && continue
+            if [ "$actor" == "$PUSH_ACTOR" ]; then
+              IS_BOT_ACTOR=true
+            fi
+          done < <(echo "$DEVIN_BOT_ACTORS" | tr ',' '\n')
+
+          LABELS=$(curl -s \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL/repos/$REPO/issues/$PR_NUMBER/labels" \
+            | jq -r '.[].name')
+          HAS_LABEL=false
+          if echo "$LABELS" | grep -Fxq "$REMEDIATION_LABEL"; then
+            HAS_LABEL=true
+          fi
+          echo "Remediation label present: $HAS_LABEL"
+
+          if [ "$IS_BOT_ACTOR" == "true" ]; then
             echo "is_devin_commit=true" >> $GITHUB_OUTPUT
-            echo "Detected Devin remediation commit - skipping new session trigger"
+            echo "Push came from an automation account - skipping new session trigger"
+          elif [ "$HAS_LABEL" == "true" ]; then
+            echo "is_devin_commit=true" >> $GITHUB_OUTPUT
+            echo "Remediation already in flight for this PR - skipping new session trigger"
           else
             echo "is_devin_commit=false" >> $GITHUB_OUTPUT
-            echo "Human commit detected"
+            echo "Human push detected"
           fi
 
       - name: Get Changed Files
@@ -165,6 +194,7 @@ jobs:
           INPUT_ISSUE_DETAILS: ${{ steps.extract-issues.outputs.issue_details }}
           INPUT_FAILED_CONDITIONS: ${{ steps.extract-issues.outputs.failed_conditions }}
           INPUT_CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
+          REMEDIATION_LABEL: devin-remediation-triggered
         run: |
           echo "Triggering Devin AI for vulnerability remediation..."
 
@@ -208,7 +238,7 @@ ${INPUT_CHANGED_FILES}
 ## Important
 - Do NOT use \`gh pr view\` or any interactive GitHub CLI commands.
 - Use \`git diff --name-only\` to verify which files you changed.
-- Tag your commit with [devin-fix] so the workflow does not re-trigger."
+- Do NOT add or remove labels on the PR; the workflow manages its own remediation state."
 
           DEVIN_RESPONSE=$(curl -s -X POST "https://api.devin.ai/v1/sessions" \
             -H "Authorization: Bearer $DEVIN_API_KEY" \
@@ -234,6 +264,15 @@ ${INPUT_CHANGED_FILES}
 
           echo "Devin session created: $SESSION_URL"
 
+          # Record remediation state on the PR so re-scans of the pushed fix do
+          # not spawn another session. Labels require write access, unlike
+          # commit author/message fields.
+          curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL/repos/$REPO/issues/$PR_NUMBER/labels" \
+            -d "$(jq -n --arg label "$REMEDIATION_LABEL" '{labels: [$label]}')" > /dev/null
+
           # Post PR comment
           COMMENT_BODY="## Devin AI — Automated Vulnerability Remediation
 
@@ -256,6 +295,20 @@ Devin will push a fix to this branch. The workflow will re-run automatically to 
             -H "Accept: application/vnd.github+json" \
             "$API_URL/repos/$REPO/issues/$PR_NUMBER/comments" \
             -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')"
+
+      - name: Clear Remediation Label on Pass
+        if: steps.quality-gate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+          REMEDIATION_LABEL: devin-remediation-triggered
+        run: |
+          curl -s -X DELETE \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL/repos/$REPO/issues/$PR_NUMBER/labels/$REMEDIATION_LABEL" > /dev/null
 
       - name: Quality Gate Result
         if: steps.quality-gate.outcome == 'failure'
