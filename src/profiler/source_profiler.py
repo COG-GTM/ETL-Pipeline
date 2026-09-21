@@ -1,22 +1,33 @@
 import json
 import os
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 
+from src.profiler.safe_ingest import IngestLimitError, IngestLimits
+
 
 class SourceProfiler:
-    def __init__(self):
+    def __init__(self, limits: Optional[IngestLimits] = None):
         self.profile_results: dict[str, Any] = {}
+        self.limits = limits or IngestLimits()
 
     def profile_csv(self, file_path: str) -> dict[str, Any]:
-        df = pd.read_csv(file_path)
+        self.limits.check_file_size(file_path)
+        df = pd.read_csv(file_path, nrows=self.limits.max_rows + 1)
+        self.limits.check_row_count(len(df), file_path)
         return self._profile_dataframe(df, file_path, "csv")
 
     def profile_json(self, file_path: str) -> dict[str, Any]:
+        self.limits.check_file_size(file_path)
         with open(file_path, "r") as f:
-            raw = json.load(f)
+            try:
+                raw = json.load(f)
+            except RecursionError as exc:
+                raise IngestLimitError(f"File {file_path} is nested too deeply to parse") from exc
+
+        self.limits.check_json_depth(raw, file_path)
 
         if isinstance(raw, list):
             df = pd.json_normalize(raw)
@@ -30,15 +41,13 @@ class SourceProfiler:
         else:
             df = pd.DataFrame([raw])
 
+        self.limits.check_row_count(len(df), file_path)
         return self._profile_dataframe(df, file_path, "json")
 
     def profile_xml(self, file_path: str) -> dict[str, Any]:
-        import xml.etree.ElementTree as ET
+        root = self.limits.parse_xml(file_path)
 
-        tree = ET.parse(file_path)
-        root = tree.getroot()
-
-        records = []
+        records: list[dict[str, str]] = []
         for element in root.iter():
             if len(element) > 0 and any(child.text and child.text.strip() for child in element):
                 record = {}
@@ -51,6 +60,7 @@ class SourceProfiler:
                                 record[f"{child.tag}_{subchild.tag}"] = subchild.text.strip()
                 if record:
                     records.append(record)
+                    self.limits.check_row_count(len(records), file_path)
 
         df = pd.DataFrame(records) if records else pd.DataFrame()
         return self._profile_dataframe(df, file_path, "xml")
