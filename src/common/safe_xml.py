@@ -28,20 +28,21 @@ def parse_xml_file(
 
     root: Element | None = None
     element_count = 0
-    for _event, element in _defused_iterparse(
-        file_path,
-        events=("start",),
-        forbid_dtd=True,
-        forbid_entities=True,
-        forbid_external=True,
-    ):
-        if root is None:
-            root = element
-        element_count += 1
-        if element_count > max_elements:
-            raise ValueError(
-                f"XML file exceeds element limit of {max_elements}: {file_path}"
-            )
+    with open(file_path, "rb") as source:
+        for _event, element in _defused_iterparse(
+            source,
+            events=("start",),
+            forbid_dtd=True,
+            forbid_entities=True,
+            forbid_external=True,
+        ):
+            if root is None:
+                root = element
+            element_count += 1
+            if element_count > max_elements:
+                raise ValueError(
+                    f"XML file exceeds element limit of {max_elements}: {file_path}"
+                )
 
     if root is None:
         raise ValueError(f"XML file contains no elements: {file_path}")
