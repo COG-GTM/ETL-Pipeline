@@ -5,6 +5,8 @@ from typing import Any
 
 import pandas as pd
 
+from src.common.safe_xml import parse_xml_file
+
 
 class SourceProfiler:
     def __init__(self):
@@ -33,10 +35,7 @@ class SourceProfiler:
         return self._profile_dataframe(df, file_path, "json")
 
     def profile_xml(self, file_path: str) -> dict[str, Any]:
-        import xml.etree.ElementTree as ET
-
-        tree = ET.parse(file_path)
-        root = tree.getroot()
+        root = parse_xml_file(file_path)
 
         records = []
         for element in root.iter():
