@@ -2,6 +2,7 @@ import pytest
 
 from src.common.safe_xml import parse_xml_file
 from src.consolidator.data_consolidator import DataConsolidator
+from src.profiler.source_profiler import SourceProfiler
 
 BILLION_LAUGHS = """<?xml version="1.0"?>
 <!DOCTYPE inventory [
@@ -50,9 +51,22 @@ def test_valid_feed_is_parsed(tmp_path):
     assert set(df["vin"].dropna()) == {"1HGCM82633A004352", "1HGCM82633A004353"}
 
 
+def test_profiler_parses_valid_feed(tmp_path):
+    profile = SourceProfiler().profile_xml(_write(tmp_path, VALID_FEED))
+
+    assert profile["row_count"] > 0
+
+
 def test_entity_expansion_is_rejected(tmp_path):
     with pytest.raises(Exception) as exc_info:
         DataConsolidator().load_source("inventory", _write(tmp_path, BILLION_LAUGHS))
+
+    assert "dtd" in type(exc_info.value).__name__.lower() or "Dtd" in str(exc_info.value)
+
+
+def test_entity_expansion_is_rejected_by_profiler(tmp_path):
+    with pytest.raises(Exception) as exc_info:
+        SourceProfiler().profile_xml(_write(tmp_path, BILLION_LAUGHS))
 
     assert "dtd" in type(exc_info.value).__name__.lower() or "Dtd" in str(exc_info.value)
 
