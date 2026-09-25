@@ -1,10 +1,11 @@
 import json
 import os
-import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
+
+from src.common.safe_xml import parse_xml_file
 
 
 class DataConsolidator:
@@ -50,8 +51,7 @@ class DataConsolidator:
         return df
 
     def _parse_xml(self, file_path: str) -> pd.DataFrame:
-        tree = ET.parse(file_path)
-        root = tree.getroot()
+        root = parse_xml_file(file_path)
 
         records = []
         for element in root.iter():
