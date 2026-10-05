@@ -23,8 +23,9 @@ Python 3.12 was scanned with Snyk and reported 0 vulnerable paths.
 
 ARB triggers: T7 (runtime version upgrade, Python 3.8 -> 3.12, single service). The heuristic
 detector also flagged T1 (Dockerfile touched) and T3 (requirements.txt touched); both are false
-positives — the Dockerfile and the `urllib3` dependency already existed, only the base image tag and
-a version floor changed. No new service, data store, vendor, or network boundary is introduced.
+positives — the Dockerfile already existed and `urllib3` was already installed (transitively, via
+`boto3` -> `botocore`); this PR only changes the base image tag and adds an explicit version floor for
+that existing transitive package. No new vendor or package is introduced. No new service, data store, vendor, or network boundary is introduced.
 
 ## Decision
 
