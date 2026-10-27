@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 
+from src.sql_identifiers import quote_identifier, truncate_identifier
+
 
 class TargetModelDesigner:
     def __init__(self):
@@ -127,12 +129,11 @@ class TargetModelDesigner:
         lines.append("")
 
         for dim in self.target_model.get("dimension_tables", []):
-            lines.append(f"CREATE TABLE {dim['name']} (")
+            lines.append(f"CREATE TABLE {quote_identifier(dim['name'])} (")
             col_defs = []
-            col_defs.append(f"    {dim['name']}_sk SERIAL PRIMARY KEY")
+            col_defs.append(f"    {self._surrogate_key(dim['name'])} SERIAL PRIMARY KEY")
             for col in dim["columns"]:
-                nullable = "" if not col.get("nullable", True) else ""
-                col_defs.append(f"    {col['name']} {col.get('target_dtype', 'VARCHAR(255)')}{' NOT NULL' if not col.get('nullable', True) else ''}")
+                col_defs.append(self._column_def(col))
             col_defs.append("    effective_date DATE DEFAULT CURRENT_DATE")
             col_defs.append("    expiry_date DATE DEFAULT '9999-12-31'")
             col_defs.append("    is_current BOOLEAN DEFAULT TRUE")
@@ -141,10 +142,10 @@ class TargetModelDesigner:
 
         fact = self.target_model.get("fact_table")
         if fact:
-            lines.append(f"CREATE TABLE {fact['name']} (")
-            col_defs = [f"    {fact['name']}_sk SERIAL PRIMARY KEY"]
+            lines.append(f"CREATE TABLE {quote_identifier(fact['name'])} (")
+            col_defs = [f"    {self._surrogate_key(fact['name'])} SERIAL PRIMARY KEY"]
             for col in fact["columns"]:
-                col_defs.append(f"    {col['name']} {col.get('target_dtype', 'VARCHAR(255)')}{' NOT NULL' if not col.get('nullable', True) else ''}")
+                col_defs.append(self._column_def(col))
             col_defs.append("    etl_load_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
             col_defs.append("    etl_batch_id VARCHAR(50)")
             lines.append(",\n".join(col_defs))
@@ -157,6 +158,15 @@ class TargetModelDesigner:
             lines.append(f"\n-- Aggregation Table: {agg['name']} (grain: {agg['grain']})")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _column_def(col: dict[str, Any]) -> str:
+        not_null = "" if col.get("nullable", True) else " NOT NULL"
+        return f"    {quote_identifier(col['name'])} {col.get('target_dtype', 'VARCHAR(255)')}{not_null}"
+
+    @staticmethod
+    def _surrogate_key(table_name: str) -> str:
+        return quote_identifier(truncate_identifier(f"{table_name}_sk"))
 
     def generate_report(self) -> str:
         if not self.target_model:
