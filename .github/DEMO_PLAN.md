@@ -26,7 +26,7 @@ This demo showcases an automated security remediation pipeline:
 
 | Variable | Description |
 |----------|-------------|
-| `DEVIN_TRUSTED_AUTHORS` | JSON array of GitHub logins allowed to trigger Devin, e.g. `["alice","bob"]`. A session is only created when both the PR author and the user who pushed / dispatched the run are listed. Unset means Devin is never triggered. |
+| `DEVIN_TRUSTED_AUTHORS` | JSON array of GitHub logins allowed to trigger Devin, e.g. `["alice","bob"]`. A session is only created when the PR author, the user who triggered or dispatched the run, and the user who pushed the scanned commit are all listed. Unset means Devin is never triggered. |
 
 ### Trust model
 
