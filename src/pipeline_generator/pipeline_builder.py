@@ -140,8 +140,10 @@ class PipelineBuilder:
         lines = []
         lines.append('"""')
         lines.append("Auto-generated ETL Pipeline")
-        lines.append(f"Generated: {self._docstring_text(self.pipeline_config.get('generated_at', 'N/A'))}")
-        lines.append(f"Steps: {self._docstring_text(self.pipeline_config.get('total_steps', 0))}")
+        generated_at = self.pipeline_config.get("generated_at", "N/A")
+        total_steps = self.pipeline_config.get("total_steps", 0)
+        lines.append(f"Generated: {self._docstring_text(generated_at)}")
+        lines.append(f"Steps: {self._docstring_text(total_steps)}")
         lines.append('"""')
         lines.append("import logging")
         lines.append("import time")
@@ -175,7 +177,9 @@ class PipelineBuilder:
         for step in self.steps:
             step_name = self._py_str(step.name)
             lines.append(f"    def _{self._method_name(step.name)}(self):")
-            lines.append(f'        logger.info("Executing step: %s", {step_name})')
+            lines.append(
+                f'        logger.info("Executing step: %s", {step_name})'
+            )
             lines.append(f"        start = time.time()")
 
             if step.step_type == "extract":
@@ -184,12 +188,19 @@ class PipelineBuilder:
                 key = self._py_str(self._safe_name(source))
                 path = self._py_str(source)
                 if fmt == "csv":
-                    lines.append(f'        self.dataframes[{key}] = pd.read_csv({path})')
+                    lines.append(
+                        f"        self.dataframes[{key}] = "
+                        f"pd.read_csv({path})"
+                    )
                 elif fmt == "json":
-                    lines.append(f'        self.dataframes[{key}] = pd.read_json({path})')
+                    lines.append(
+                        f"        self.dataframes[{key}] = "
+                        f"pd.read_json({path})"
+                    )
                 else:
                     lines.append(
-                        f'        # Extract from {self._comment_text(fmt)} source: {self._comment_text(source)}'
+                        f"        # Extract from {self._comment_text(fmt)}"
+                        f" source: {self._comment_text(source)}"
                     )
                     lines.append(f'        pass')
             elif step.step_type == "validate":
@@ -199,7 +210,9 @@ class PipelineBuilder:
                 ops = step.config.get("operations", [])
                 if ops:
                     for op in ops:
-                        lines.append(f'        # Transform: {self._comment_text(op)}')
+                        lines.append(
+                            f"        # Transform: {self._comment_text(op)}"
+                        )
                 else:
                     lines.append(f"        # Apply target model transformations")
                 lines.append(f"        pass")
@@ -210,8 +223,13 @@ class PipelineBuilder:
                 lines.append(f"        # Load to target data warehouse")
                 lines.append(f"        pass")
 
-            lines.append(f'        self.metrics[{step_name}] = {{"duration_s": round(time.time() - start, 3)}}')
-            lines.append(f'        logger.info("Step %s completed", {step_name})')
+            lines.append(
+                f"        self.metrics[{step_name}] = "
+                '{"duration_s": round(time.time() - start, 3)}'
+            )
+            lines.append(
+                f'        logger.info("Step %s completed", {step_name})'
+            )
             lines.append("")
 
         return "\n".join(lines)
@@ -290,13 +308,20 @@ class PipelineBuilder:
     # metadata must go through one of these before it is emitted as code.
 
     def _method_name(self, name: Any) -> str:
+        """Return ``name`` reduced to ``[a-z0-9_]`` for a method name."""
         return re.sub(r"[^a-z0-9_]", "_", str(name).lower())
 
     def _py_str(self, value: Any) -> str:
+        """Return ``value`` as an escaped, single-line Python literal."""
         return repr(str(value))
 
     def _comment_text(self, value: Any) -> str:
+        """Return ``value`` with non-printable chars (newlines etc.)
+        replaced by spaces so it cannot leave a ``#`` comment."""
         return "".join(ch if ch.isprintable() else " " for ch in str(value))
 
     def _docstring_text(self, value: Any) -> str:
-        return self._comment_text(value).replace("\\", "/").replace('"', "'")
+        """Return ``value`` safe to place inside a triple-quoted
+        docstring: printable, no double quotes or backslashes."""
+        text = self._comment_text(value)
+        return text.replace("\\", "/").replace('"', "'")
