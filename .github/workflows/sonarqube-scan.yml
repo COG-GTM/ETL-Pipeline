@@ -104,20 +104,31 @@ jobs:
           # authenticated account behind each ref update (commit author fields are
           # spoofable). A manual dispatch is attributed to the dispatcher, so this is
           # what stops a trusted maintainer from launching Devin on someone else's push.
+          # Follows the API's Link pagination (same origin only, at most 10 pages).
           head_pusher() {
-            local activity
-            activity=$(curl -sf -G \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              --data-urlencode "ref=refs/heads/$HEAD_REF" \
-              --data-urlencode "per_page=100" \
-              "$API_URL/repos/$REPO/activity") || return 0
-            jq -r --arg sha "$HEAD_SHA" \
-              'first((if type == "array" then .[] else empty end)
-                | objects
-                | select(.after == $sha and (.activity_type == "push" or .activity_type == "force_push" or .activity_type == "branch_creation"))
-                | .actor.login // empty | strings) // ""' \
-              <<<"$activity" 2>/dev/null || true
+            local url headers body login next _page
+            url="$API_URL/repos/$REPO/activity?ref=$(jq -rn --arg r "refs/heads/$HEAD_REF" '$r | @uri')&per_page=100"
+            headers=$(mktemp)
+            for _page in 1 2 3 4 5 6 7 8 9 10; do
+              body=$(curl -sf -D "$headers" \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "$url") || break
+              login=$(jq -r --arg sha "$HEAD_SHA" \
+                'first((if type == "array" then .[] else empty end)
+                  | objects
+                  | select(.after == $sha and (.activity_type == "push" or .activity_type == "force_push" or .activity_type == "branch_creation"))
+                  | .actor.login // empty | strings) // ""' \
+                <<<"$body" 2>/dev/null || true)
+              if [[ -n "$login" ]]; then
+                printf '%s\n' "$login"
+                break
+              fi
+              next=$(tr -d '\r' <"$headers" | grep -i '^link:' | grep -o '<[^>]*>; rel="next"' | head -n 1 | sed -E 's/^<([^>]*)>.*/\1/' || true)
+              [[ "$next" == "$API_URL/"* ]] || break
+              url="$next"
+            done
+            rm -f "$headers"
           }
 
           DEVIN_ALLOWED=false
@@ -416,12 +427,18 @@ jobs:
         env:
           IS_DEVIN_COMMIT: ${{ steps.check-devin.outputs.is_devin_commit }}
           DEVIN_ALLOWED: ${{ steps.pr.outputs.devin_allowed }}
+          ACTIONABLE: ${{ steps.extract-issues.outputs.actionable }}
+          TRIGGER_OUTCOME: ${{ steps.trigger-devin.outcome }}
         run: |
           if [[ "$IS_DEVIN_COMMIT" == "true" ]]; then
             echo "Quality gate still failing after Devin remediation — human review required."
           elif [[ "$DEVIN_ALLOWED" != "true" ]]; then
             echo "Quality gate failed — Devin was not triggered because the PR author, actor, or pusher is not in DEVIN_TRUSTED_AUTHORS. Human review required."
-          else
+          elif [[ "$ACTIONABLE" != "true" ]]; then
+            echo "Quality gate failed — Devin was not triggered because SonarCloud reported no issues or hotspots to remediate. Human review required."
+          elif [[ "$TRIGGER_OUTCOME" == "success" ]]; then
             echo "Quality gate failed — Devin has been triggered for auto-remediation."
+          else
+            echo "Quality gate failed — Devin was not triggered. Human review required."
           fi
           exit 1
