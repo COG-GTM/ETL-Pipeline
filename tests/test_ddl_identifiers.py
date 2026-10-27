@@ -91,6 +91,48 @@ class TargetModelDdlTest(unittest.TestCase):
         self.assertIn('"fact_transactions_sk" SERIAL PRIMARY KEY', ddl)
         self.assertIn('    "x""); DROP TABLE y; --" INTEGER', ddl)
 
+    def test_sources_with_same_sanitized_name_stay_separate(self):
+        designer = TargetModelDesigner()
+        for _ in range(2):
+            designer.add_source_schema({
+                "detected_table_name": "a_b",
+                "columns": [{"name": "v", "target_dtype": "INTEGER", "nullable": True}],
+            })
+        model = designer.design_star_schema()
+        names = [model["fact_table"]["name"]] + [d["name"] for d in model["dimension_tables"]]
+        self.assertEqual(sorted(names), ["dim_a_b_2", "fact_a_b"])
+        self.assertEqual(len(model["fact_table"]["columns"]), 1)
+
+    def test_long_target_table_names_stay_distinct_within_limit(self):
+        designer = TargetModelDesigner()
+        for suffix in ("one", "two", "three"):
+            designer.add_source_schema({
+                "detected_table_name": "a" * 59 + suffix if suffix != "three" else "a" * 63,
+                "columns": [{"name": "v", "target_dtype": "INTEGER", "nullable": True}],
+            })
+        model = designer.design_star_schema()
+        names = [model["fact_table"]["name"]] + [d["name"] for d in model["dimension_tables"]]
+        self.assertEqual(len(set(names)), 3)
+        self.assertTrue(all(len(n) <= 63 for n in names))
+        self.assertTrue(all(len(n) <= 63 for n in (designer._surrogate_key_name(n) for n in names)))
+
+    def test_source_columns_do_not_clash_with_audit_columns(self):
+        designer = TargetModelDesigner()
+        designer.add_source_schema({
+            "detected_table_name": "transactions",
+            "columns": [
+                {"name": "etl_batch_id", "target_dtype": "INTEGER", "nullable": True},
+                {"name": "fact_transactions_sk", "target_dtype": "INTEGER", "nullable": True},
+            ],
+        })
+        designer.add_source_schema({
+            "detected_table_name": "customers",
+            "columns": [{"name": "effective_date", "target_dtype": "INTEGER", "nullable": True}],
+        })
+        model = designer.design_star_schema()
+        self.assertEqual([c["name"] for c in model["fact_table"]["columns"]], ["etl_batch_id_2", "fact_transactions_sk_2"])
+        self.assertEqual([c["name"] for c in model["dimension_tables"][0]["columns"]], ["effective_date_2"])
+
 
 if __name__ == "__main__":
     unittest.main()
