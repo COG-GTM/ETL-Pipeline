@@ -1,6 +1,6 @@
 from typing import Any
 
-from src.sql_identifiers import quote_identifier, safe_data_type
+from ..sql_identifiers import quote_identifier, safe_data_type
 
 
 class SchemaDetector:
