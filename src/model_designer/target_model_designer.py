@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 
+from src.sql_identifiers import quote_identifier, safe_data_type, sql_comment_text
+
 
 class TargetModelDesigner:
     def __init__(self):
@@ -122,17 +124,14 @@ class TargetModelDesigner:
             return "-- No target model designed yet"
 
         lines = ["-- Auto-generated Target Data Model DDL"]
-        lines.append(f"-- Designed: {self.target_model['designed_at']}")
-        lines.append(f"-- Schema Type: {self.target_model['schema_type']}")
+        lines.append(f"-- Designed: {sql_comment_text(self.target_model['designed_at'])}")
+        lines.append(f"-- Schema Type: {sql_comment_text(self.target_model['schema_type'])}")
         lines.append("")
 
         for dim in self.target_model.get("dimension_tables", []):
-            lines.append(f"CREATE TABLE {dim['name']} (")
-            col_defs = []
-            col_defs.append(f"    {dim['name']}_sk SERIAL PRIMARY KEY")
-            for col in dim["columns"]:
-                nullable = "" if not col.get("nullable", True) else ""
-                col_defs.append(f"    {col['name']} {col.get('target_dtype', 'VARCHAR(255)')}{' NOT NULL' if not col.get('nullable', True) else ''}")
+            lines.append(f"CREATE TABLE {quote_identifier(dim['name'])} (")
+            col_defs = [f"    {quote_identifier(dim['name'] + '_sk')} SERIAL PRIMARY KEY"]
+            col_defs.extend(self._column_ddl(col) for col in dim["columns"])
             col_defs.append("    effective_date DATE DEFAULT CURRENT_DATE")
             col_defs.append("    expiry_date DATE DEFAULT '9999-12-31'")
             col_defs.append("    is_current BOOLEAN DEFAULT TRUE")
@@ -141,22 +140,30 @@ class TargetModelDesigner:
 
         fact = self.target_model.get("fact_table")
         if fact:
-            lines.append(f"CREATE TABLE {fact['name']} (")
-            col_defs = [f"    {fact['name']}_sk SERIAL PRIMARY KEY"]
-            for col in fact["columns"]:
-                col_defs.append(f"    {col['name']} {col.get('target_dtype', 'VARCHAR(255)')}{' NOT NULL' if not col.get('nullable', True) else ''}")
+            lines.append(f"CREATE TABLE {quote_identifier(fact['name'])} (")
+            col_defs = [f"    {quote_identifier(fact['name'] + '_sk')} SERIAL PRIMARY KEY"]
+            col_defs.extend(self._column_ddl(col) for col in fact["columns"])
             col_defs.append("    etl_load_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
             col_defs.append("    etl_batch_id VARCHAR(50)")
             lines.append(",\n".join(col_defs))
             lines.append(");\n")
 
         for rel in self.target_model.get("relationships", []):
-            lines.append(f"-- Relationship: {rel['from_table']}.{rel['from_column']} -> {rel['to_table']}.{rel['to_column']} ({rel['cardinality']})")
+            lines.append(sql_comment_text(
+                f"-- Relationship: {quote_identifier(rel['from_table'])}.{quote_identifier(rel['from_column'])}"
+                f" -> {quote_identifier(rel['to_table'])}.{quote_identifier(rel['to_column'])} ({rel['cardinality']})"
+            ))
 
         for agg in self.target_model.get("aggregation_tables", []):
-            lines.append(f"\n-- Aggregation Table: {agg['name']} (grain: {agg['grain']})")
+            lines.append("")
+            lines.append(sql_comment_text(f"-- Aggregation Table: {quote_identifier(agg['name'])} (grain: {agg['grain']})"))
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _column_ddl(col: dict[str, Any]) -> str:
+        not_null = "" if col.get("nullable", True) else " NOT NULL"
+        return f"    {quote_identifier(col['name'])} {safe_data_type(col.get('target_dtype'))}{not_null}"
 
     def generate_report(self) -> str:
         if not self.target_model:
