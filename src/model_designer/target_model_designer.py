@@ -1,8 +1,13 @@
 from datetime import datetime
 from typing import Any
 
+from src.sql_identifiers import quote_identifier, truncate_identifier, unique_identifier
+
 
 class TargetModelDesigner:
+    DIMENSION_AUDIT_COLUMNS = ("effective_date", "expiry_date", "is_current")
+    FACT_AUDIT_COLUMNS = ("etl_load_timestamp", "etl_batch_id")
+
     def __init__(self):
         self.source_schemas: list[dict[str, Any]] = []
         self.target_model: dict[str, Any] = {}
@@ -12,30 +17,35 @@ class TargetModelDesigner:
 
     def design_star_schema(self, fact_table_hint: str = "transactions") -> dict[str, Any]:
         all_columns: dict[str, list[dict[str, Any]]] = {}
+        used_table_names: set[str] = set()
         for schema in self.source_schemas:
-            table_name = schema["detected_table_name"]
-            for col in schema["columns"]:
-                if table_name not in all_columns:
-                    all_columns[table_name] = []
-                all_columns[table_name].append(col)
+            if not schema["columns"]:
+                continue
+            table_name = unique_identifier(schema["detected_table_name"], used_table_names)
+            all_columns[table_name] = list(schema["columns"])
 
         fact_table = None
         dimension_tables = []
 
         for table_name, columns in all_columns.items():
             if fact_table is None and fact_table_hint.lower() in table_name.lower():
-                fact_table = {"name": f"fact_{table_name}", "source": table_name, "columns": columns}
+                fact_table = {"name": truncate_identifier(f"fact_{table_name}"), "source": table_name, "columns": columns}
             else:
-                dimension_tables.append({"name": f"dim_{table_name}", "source": table_name, "columns": columns})
+                dimension_tables.append({"name": truncate_identifier(f"dim_{table_name}"), "source": table_name, "columns": columns})
 
         if fact_table is None and all_columns:
             max_table = max(all_columns.items(), key=lambda x: len(x[1]))
-            fact_table = {"name": f"fact_{max_table[0]}", "source": max_table[0], "columns": max_table[1]}
+            fact_table = {"name": truncate_identifier(f"fact_{max_table[0]}"), "source": max_table[0], "columns": max_table[1]}
             dimension_tables = [
-                {"name": f"dim_{t}", "source": t, "columns": c}
+                {"name": truncate_identifier(f"dim_{t}"), "source": t, "columns": c}
                 for t, c in all_columns.items()
                 if t != max_table[0]
             ]
+
+        if fact_table is not None:
+            fact_table["columns"] = self._avoid_reserved_names(fact_table["columns"], self.FACT_AUDIT_COLUMNS, fact_table["name"])
+        for dim in dimension_tables:
+            dim["columns"] = self._avoid_reserved_names(dim["columns"], self.DIMENSION_AUDIT_COLUMNS, dim["name"])
 
         relationships = self._infer_relationships(fact_table, dimension_tables)
 
@@ -127,12 +137,11 @@ class TargetModelDesigner:
         lines.append("")
 
         for dim in self.target_model.get("dimension_tables", []):
-            lines.append(f"CREATE TABLE {dim['name']} (")
+            lines.append(f"CREATE TABLE {quote_identifier(dim['name'])} (")
             col_defs = []
-            col_defs.append(f"    {dim['name']}_sk SERIAL PRIMARY KEY")
+            col_defs.append(f"    {self._surrogate_key(dim['name'])} SERIAL PRIMARY KEY")
             for col in dim["columns"]:
-                nullable = "" if not col.get("nullable", True) else ""
-                col_defs.append(f"    {col['name']} {col.get('target_dtype', 'VARCHAR(255)')}{' NOT NULL' if not col.get('nullable', True) else ''}")
+                col_defs.append(self._column_def(col))
             col_defs.append("    effective_date DATE DEFAULT CURRENT_DATE")
             col_defs.append("    expiry_date DATE DEFAULT '9999-12-31'")
             col_defs.append("    is_current BOOLEAN DEFAULT TRUE")
@@ -141,10 +150,10 @@ class TargetModelDesigner:
 
         fact = self.target_model.get("fact_table")
         if fact:
-            lines.append(f"CREATE TABLE {fact['name']} (")
-            col_defs = [f"    {fact['name']}_sk SERIAL PRIMARY KEY"]
+            lines.append(f"CREATE TABLE {quote_identifier(fact['name'])} (")
+            col_defs = [f"    {self._surrogate_key(fact['name'])} SERIAL PRIMARY KEY"]
             for col in fact["columns"]:
-                col_defs.append(f"    {col['name']} {col.get('target_dtype', 'VARCHAR(255)')}{' NOT NULL' if not col.get('nullable', True) else ''}")
+                col_defs.append(self._column_def(col))
             col_defs.append("    etl_load_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
             col_defs.append("    etl_batch_id VARCHAR(50)")
             lines.append(",\n".join(col_defs))
@@ -157,6 +166,30 @@ class TargetModelDesigner:
             lines.append(f"\n-- Aggregation Table: {agg['name']} (grain: {agg['grain']})")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _column_def(col: dict[str, Any]) -> str:
+        """Render one quoted column definition for target DDL."""
+        not_null = "" if col.get("nullable", True) else " NOT NULL"
+        return f"    {quote_identifier(col['name'])} {col.get('target_dtype', 'VARCHAR(255)')}{not_null}"
+
+    @staticmethod
+    def _surrogate_key_name(table_name: str) -> str:
+        """Return the length-limited surrogate key column name for a table."""
+        return truncate_identifier(f"{table_name}_sk")
+
+    def _surrogate_key(self, table_name: str) -> str:
+        """Return the quoted surrogate key identifier for a table."""
+        return quote_identifier(self._surrogate_key_name(table_name))
+
+    def _avoid_reserved_names(self, columns: list[dict[str, Any]], audit_columns: tuple, table_name: str) -> list[dict[str, Any]]:
+        """Rename source columns that clash with the surrogate key or audit columns."""
+        used = {self._surrogate_key_name(table_name), *audit_columns}
+        renamed = []
+        for col in columns:
+            name = unique_identifier(col["name"], used)
+            renamed.append(col if name == col["name"] else {**col, "name": name})
+        return renamed
 
     def generate_report(self) -> str:
         if not self.target_model:

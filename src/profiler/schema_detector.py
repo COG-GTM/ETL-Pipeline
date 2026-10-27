@@ -1,4 +1,7 @@
+import os
 from typing import Any
+
+from src.sql_identifiers import quote_identifier, sanitize_identifier, unique_identifier
 
 
 class SchemaDetector:
@@ -20,9 +23,12 @@ class SchemaDetector:
             "indexes_recommended": [],
         }
 
-        for col_name, col_info in profile["columns"].items():
+        used_names: set[str] = set()
+        for source_name, col_info in profile["columns"].items():
+            col_name = unique_identifier(sanitize_identifier(source_name, fallback="column"), used_names)
             col_schema = {
                 "name": col_name,
+                "source_name": source_name,
                 "source_dtype": col_info["dtype"],
                 "target_dtype": self._map_dtype(col_info),
                 "nullable": col_info["null_count"] > 0,
@@ -51,9 +57,8 @@ class SchemaDetector:
         return schema
 
     def _infer_table_name(self, source: str) -> str:
-        import os
         base = os.path.splitext(os.path.basename(source))[0]
-        return base.lower().replace("-", "_").replace(" ", "_")
+        return sanitize_identifier(base, fallback="source_table")
 
     def _map_dtype(self, col_info: dict[str, Any]) -> str:
         dtype = col_info["dtype"]
@@ -68,12 +73,13 @@ class SchemaDetector:
 
     def generate_ddl(self, schema: dict[str, Any]) -> str:
         lines = []
-        table_name = schema["detected_table_name"]
+        raw_table_name = schema["detected_table_name"]
+        table_name = quote_identifier(raw_table_name)
         lines.append(f"CREATE TABLE {table_name} (")
 
         col_defs = []
         for col in schema["columns"]:
-            parts = [f"    {col['name']}"]
+            parts = [f"    {quote_identifier(col['name'])}"]
             parts.append(col["target_dtype"])
             if not col["nullable"]:
                 parts.append("NOT NULL")
@@ -82,14 +88,15 @@ class SchemaDetector:
             col_defs.append(" ".join(parts))
 
         if schema["primary_key_candidates"]:
-            pk_cols = ", ".join(schema["primary_key_candidates"][:1])
+            pk_cols = ", ".join(quote_identifier(c) for c in schema["primary_key_candidates"][:1])
             col_defs.append(f"    PRIMARY KEY ({pk_cols})")
 
         lines.append(",\n".join(col_defs))
         lines.append(");")
 
         for idx_col in schema.get("indexes_recommended", []):
-            lines.append(f"CREATE INDEX idx_{table_name}_{idx_col} ON {table_name} ({idx_col});")
+            idx_name = sanitize_identifier(f"idx_{raw_table_name}_{idx_col}")
+            lines.append(f"CREATE INDEX {quote_identifier(idx_name)} ON {table_name} ({quote_identifier(idx_col)});")
 
         return "\n".join(lines)
 
