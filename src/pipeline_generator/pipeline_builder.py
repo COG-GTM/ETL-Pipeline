@@ -1,4 +1,6 @@
 import json
+import os
+import re
 from datetime import datetime
 from typing import Any
 
@@ -138,8 +140,8 @@ class PipelineBuilder:
         lines = []
         lines.append('"""')
         lines.append("Auto-generated ETL Pipeline")
-        lines.append(f"Generated: {self.pipeline_config.get('generated_at', 'N/A')}")
-        lines.append(f"Steps: {self.pipeline_config.get('total_steps', 0)}")
+        lines.append(f"Generated: {self._docstring_text(self.pipeline_config.get('generated_at', 'N/A'))}")
+        lines.append(f"Steps: {self._docstring_text(self.pipeline_config.get('total_steps', 0))}")
         lines.append('"""')
         lines.append("import logging")
         lines.append("import time")
@@ -162,8 +164,7 @@ class PipelineBuilder:
         lines.append("")
 
         for step in self.steps:
-            method_name = step.name.lower().replace("-", "_").replace(" ", "_")
-            lines.append(f"        self._{method_name}()")
+            lines.append(f"        self._{self._method_name(step.name)}()")
 
         lines.append("")
         lines.append("        elapsed = datetime.now() - self.start_time")
@@ -172,21 +173,24 @@ class PipelineBuilder:
         lines.append("")
 
         for step in self.steps:
-            method_name = step.name.lower().replace("-", "_").replace(" ", "_")
-            lines.append(f"    def _{method_name}(self):")
-            lines.append(f'        logger.info("Executing step: {step.name}")')
+            step_name = self._py_str(step.name)
+            lines.append(f"    def _{self._method_name(step.name)}(self):")
+            lines.append(f'        logger.info("Executing step: %s", {step_name})')
             lines.append(f"        start = time.time()")
 
             if step.step_type == "extract":
                 fmt = step.config.get("format", "csv")
                 source = step.config.get("source", "unknown")
-                safe = self._safe_name(source)
+                key = self._py_str(self._safe_name(source))
+                path = self._py_str(source)
                 if fmt == "csv":
-                    lines.append(f'        self.dataframes["{safe}"] = pd.read_csv("{source}")')
+                    lines.append(f'        self.dataframes[{key}] = pd.read_csv({path})')
                 elif fmt == "json":
-                    lines.append(f'        self.dataframes["{safe}"] = pd.read_json("{source}")')
+                    lines.append(f'        self.dataframes[{key}] = pd.read_json({path})')
                 else:
-                    lines.append(f'        # Extract from {fmt} source: {source}')
+                    lines.append(
+                        f'        # Extract from {self._comment_text(fmt)} source: {self._comment_text(source)}'
+                    )
                     lines.append(f'        pass')
             elif step.step_type == "validate":
                 lines.append(f"        # Run quality validation checks")
@@ -195,7 +199,7 @@ class PipelineBuilder:
                 ops = step.config.get("operations", [])
                 if ops:
                     for op in ops:
-                        lines.append(f'        # Transform: {op}')
+                        lines.append(f'        # Transform: {self._comment_text(op)}')
                 else:
                     lines.append(f"        # Apply target model transformations")
                 lines.append(f"        pass")
@@ -206,8 +210,8 @@ class PipelineBuilder:
                 lines.append(f"        # Load to target data warehouse")
                 lines.append(f"        pass")
 
-            lines.append(f'        self.metrics["{step.name}"] = {{"duration_s": round(time.time() - start, 3)}}')
-            lines.append(f'        logger.info("Step {step.name} completed")')
+            lines.append(f'        self.metrics[{step_name}] = {{"duration_s": round(time.time() - start, 3)}}')
+            lines.append(f'        logger.info("Step %s completed", {step_name})')
             lines.append("")
 
         return "\n".join(lines)
@@ -279,7 +283,20 @@ class PipelineBuilder:
         return [col for col, count in all_columns.items() if count > 1]
 
     def _safe_name(self, name: str) -> str:
-        import os
-        import re
-        base = os.path.splitext(os.path.basename(name))[0]
+        base = os.path.splitext(os.path.basename(str(name)))[0]
         return re.sub(r"[^a-zA-Z0-9_]", "_", base).lower()
+
+    # Helpers for generate_pipeline_code: every value derived from source
+    # metadata must go through one of these before it is emitted as code.
+
+    def _method_name(self, name: Any) -> str:
+        return re.sub(r"[^a-z0-9_]", "_", str(name).lower())
+
+    def _py_str(self, value: Any) -> str:
+        return repr(str(value))
+
+    def _comment_text(self, value: Any) -> str:
+        return "".join(ch if ch.isprintable() else " " for ch in str(value))
+
+    def _docstring_text(self, value: Any) -> str:
+        return self._comment_text(value).replace("\\", "/").replace('"', "'")
