@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from src.sql_identifiers import quote_identifier, safe_data_type, sql_comment_text
+from ..sql_identifiers import quote_identifier, safe_data_type, sql_comment_text
 
 
 class TargetModelDesigner:
@@ -162,6 +162,7 @@ class TargetModelDesigner:
 
     @staticmethod
     def _column_ddl(col: dict[str, Any]) -> str:
+        """Render one model column as a PostgreSQL column definition."""
         not_null = "" if col.get("nullable", True) else " NOT NULL"
         return f"    {quote_identifier(col['name'])} {safe_data_type(col.get('target_dtype'))}{not_null}"
 
