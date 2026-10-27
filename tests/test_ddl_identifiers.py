@@ -11,6 +11,7 @@ MALICIOUS_HEADER = "id INTEGER); DROP TABLE customers; --"
 
 
 def _profile_csv(file_name: str, content: str) -> dict:
+    """Write `content` to a temp CSV named `file_name` and profile it."""
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, file_name)
         with open(path, "w") as fh:

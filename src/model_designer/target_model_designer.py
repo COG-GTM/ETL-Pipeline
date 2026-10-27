@@ -169,17 +169,21 @@ class TargetModelDesigner:
 
     @staticmethod
     def _column_def(col: dict[str, Any]) -> str:
+        """Render one quoted column definition for target DDL."""
         not_null = "" if col.get("nullable", True) else " NOT NULL"
         return f"    {quote_identifier(col['name'])} {col.get('target_dtype', 'VARCHAR(255)')}{not_null}"
 
     @staticmethod
     def _surrogate_key_name(table_name: str) -> str:
+        """Return the length-limited surrogate key column name for a table."""
         return truncate_identifier(f"{table_name}_sk")
 
     def _surrogate_key(self, table_name: str) -> str:
+        """Return the quoted surrogate key identifier for a table."""
         return quote_identifier(self._surrogate_key_name(table_name))
 
     def _avoid_reserved_names(self, columns: list[dict[str, Any]], audit_columns: tuple, table_name: str) -> list[dict[str, Any]]:
+        """Rename source columns that clash with the surrogate key or audit columns."""
         used = {self._surrogate_key_name(table_name), *audit_columns}
         renamed = []
         for col in columns:
