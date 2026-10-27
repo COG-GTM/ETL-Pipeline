@@ -90,18 +90,44 @@ jobs:
             fi
           done
 
-          # Devin runs with Devin's own credentials, so only PRs authored AND pushed
-          # (or manually dispatched) by allowlisted maintainers may start a session.
-          # DEVIN_TRUSTED_AUTHORS is a repository variable holding a JSON array of
-          # GitHub logins, e.g. ["alice","bob"]. Unset or invalid means nobody.
+          # Devin runs with Devin's own credentials, so a session may only start when
+          # the PR author, the user who triggered this run, AND the user who pushed the
+          # scanned commit are all allowlisted maintainers. DEVIN_TRUSTED_AUTHORS is a
+          # repository variable holding a JSON array of GitHub logins, e.g.
+          # ["alice","bob"]. Unset or invalid means nobody.
           is_trusted() {
             jq -en --arg login "$1" --argjson trusted "${TRUSTED_AUTHORS:-null}" \
               '($trusted | type) == "array" and ([$trusted[] | strings | ascii_downcase] | index($login | ascii_downcase)) != null' \
               >/dev/null 2>&1
           }
+          # The pusher comes from the repository activity log, which records the
+          # authenticated account behind each ref update (commit author fields are
+          # spoofable). A manual dispatch is attributed to the dispatcher, so this is
+          # what stops a trusted maintainer from launching Devin on someone else's push.
+          head_pusher() {
+            local activity
+            activity=$(curl -sf -G \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              --data-urlencode "ref=refs/heads/$HEAD_REF" \
+              --data-urlencode "per_page=100" \
+              "$API_URL/repos/$REPO/activity") || return 0
+            jq -r --arg sha "$HEAD_SHA" \
+              'first((if type == "array" then .[] else empty end)
+                | objects
+                | select(.after == $sha and (.activity_type == "push" or .activity_type == "force_push" or .activity_type == "branch_creation"))
+                | .actor.login // empty | strings) // ""' \
+              <<<"$activity" 2>/dev/null || true
+          }
+
           DEVIN_ALLOWED=false
           if [[ -n "$PR_AUTHOR" ]] && is_trusted "$PR_AUTHOR" && is_trusted "$ACTOR"; then
-            DEVIN_ALLOWED=true
+            PUSHER=$(head_pusher)
+            if [[ -n "$PUSHER" ]] && is_trusted "$PUSHER"; then
+              DEVIN_ALLOWED=true
+            else
+              echo "::notice::Devin auto-remediation disabled for this run: the account that pushed commit $HEAD_SHA could not be confirmed as a member of DEVIN_TRUSTED_AUTHORS"
+            fi
           else
             echo "::notice::Devin auto-remediation disabled for this run: PR author and triggering actor must both be listed in the DEVIN_TRUSTED_AUTHORS repository variable"
           fi
@@ -133,8 +159,15 @@ jobs:
           key: ${{ runner.os }}-sonar
           restore-keys: ${{ runner.os }}-sonar
 
+      # Pin the server, organization and project on the command line (which
+      # overrides sonar-project.properties) so a PR cannot redirect SONAR_TOKEN.
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
+        with:
+          args: >-
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.organization=cog-gtm
+            -Dsonar.projectKey=COG-GTM_ETL-Pipeline
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -176,28 +209,45 @@ jobs:
           set -euo pipefail
           echo "Extracting issues from SonarCloud for PR #$PR_NUMBER..."
 
-          ALL_ISSUES=$(curl -s -u "$SONAR_TOKEN:" \
-            "https://sonarcloud.io/api/issues/search?componentKeys=COG-GTM_ETL-Pipeline&pullRequest=$PR_NUMBER&resolved=false&ps=100")
+          # Any failed or malformed SonarCloud response fails this step, so Devin is
+          # never started with an empty or partial issue list.
+          sonar_get() {
+            local body
+            if ! body=$(curl -sf -u "$SONAR_TOKEN:" "$1"); then
+              echo "::error::SonarCloud request failed: ${1%%\?*}" >&2
+              return 1
+            fi
+            if ! jq -e "$2" <<<"$body" >/dev/null 2>&1; then
+              echo "::error::Unexpected SonarCloud response from ${1%%\?*}" >&2
+              return 1
+            fi
+            printf '%s' "$body"
+          }
 
-          QG_STATUS=$(curl -s -u "$SONAR_TOKEN:" \
-            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=COG-GTM_ETL-Pipeline&pullRequest=$PR_NUMBER")
+          ALL_ISSUES=$(sonar_get \
+            "https://sonarcloud.io/api/issues/search?componentKeys=COG-GTM_ETL-Pipeline&pullRequest=$PR_NUMBER&resolved=false&ps=100" \
+            '(.issues | type) == "array" and (.total | type) == "number"')
 
-          SECURITY_HOTSPOTS_RESP=$(curl -s -u "$SONAR_TOKEN:" \
-            "https://sonarcloud.io/api/hotspots/search?projectKey=COG-GTM_ETL-Pipeline&pullRequest=$PR_NUMBER&ps=100")
+          QG_STATUS=$(sonar_get \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=COG-GTM_ETL-Pipeline&pullRequest=$PR_NUMBER" \
+            '(.projectStatus.conditions | type) == "array"')
 
-          count() { jq "$1" <<<"$2" 2>/dev/null | grep -E '^[0-9]+$' || echo 0; }
-          VULNERABILITIES=$(count '[.issues[]? | select(.type=="VULNERABILITY")] | length' "$ALL_ISSUES")
-          BUGS=$(count '[.issues[]? | select(.type=="BUG")] | length' "$ALL_ISSUES")
-          CODE_SMELLS=$(count '[.issues[]? | select(.type=="CODE_SMELL")] | length' "$ALL_ISSUES")
-          TOTAL_ISSUES=$(count '.total // 0' "$ALL_ISSUES")
-          SECURITY_HOTSPOTS=$(count '.paging.total // 0' "$SECURITY_HOTSPOTS_RESP")
+          SECURITY_HOTSPOTS_RESP=$(sonar_get \
+            "https://sonarcloud.io/api/hotspots/search?projectKey=COG-GTM_ETL-Pipeline&pullRequest=$PR_NUMBER&ps=100" \
+            '(.paging.total | type) == "number"')
+
+          VULNERABILITIES=$(jq '[.issues[] | select(.type=="VULNERABILITY")] | length' <<<"$ALL_ISSUES")
+          BUGS=$(jq '[.issues[] | select(.type=="BUG")] | length' <<<"$ALL_ISSUES")
+          CODE_SMELLS=$(jq '[.issues[] | select(.type=="CODE_SMELL")] | length' <<<"$ALL_ISSUES")
+          TOTAL_ISSUES=$(jq '.total | floor' <<<"$ALL_ISSUES")
+          SECURITY_HOTSPOTS=$(jq '.paging.total | floor' <<<"$SECURITY_HOTSPOTS_RESP")
 
           FAILED_CONDITIONS=$(jq -c '[.projectStatus.conditions[]?
             | select(.status=="ERROR")
             | {metric: .metricKey, actual: .actualValue, threshold: .errorThreshold}
             | select((.metric | type) == "string" and (.metric | test("^[a-z_]{1,64}$")))
             | select(((.actual // "") | tostring | test("^[0-9.]{0,32}$")) and ((.threshold // "") | tostring | test("^[0-9.]{0,32}$")))]' \
-            <<<"$QG_STATUS" 2>/dev/null || echo '[]')
+            <<<"$QG_STATUS")
 
           ISSUE_REFS=$(jq -c '[.issues[]?
             | {key: .key, rule: .rule, type: .type, severity: .severity, line: .line}
@@ -206,7 +256,13 @@ jobs:
             | select(.type == "VULNERABILITY" or .type == "BUG" or .type == "CODE_SMELL")
             | select(.severity == "BLOCKER" or .severity == "CRITICAL" or .severity == "MAJOR" or .severity == "MINOR" or .severity == "INFO")
             | .line |= (if type == "number" then floor else null end)]' \
-            <<<"$ALL_ISSUES" 2>/dev/null || echo '[]')
+            <<<"$ALL_ISSUES")
+
+          ACTIONABLE=true
+          if [[ "$ISSUE_REFS" == "[]" && "$SECURITY_HOTSPOTS" == "0" ]]; then
+            ACTIONABLE=false
+            echo "::notice::No SonarCloud issues or hotspots to remediate; Devin will not be triggered"
+          fi
 
           DELIMITER="GHEOF_$(openssl rand -hex 16)"
           {
@@ -215,6 +271,7 @@ jobs:
             echo "bugs=$BUGS"
             echo "code_smells=$CODE_SMELLS"
             echo "security_hotspots=$SECURITY_HOTSPOTS"
+            echo "actionable=$ACTIONABLE"
             echo "failed_conditions<<$DELIMITER"
             echo "$FAILED_CONDITIONS"
             echo "$DELIMITER"
@@ -241,7 +298,8 @@ jobs:
         if: |
           steps.quality-gate.outcome == 'failure' &&
           steps.check-devin.outputs.is_devin_commit == 'false' &&
-          steps.pr.outputs.devin_allowed == 'true'
+          steps.pr.outputs.devin_allowed == 'true' &&
+          steps.extract-issues.outputs.actionable == 'true'
         env:
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -362,7 +420,7 @@ jobs:
           if [[ "$IS_DEVIN_COMMIT" == "true" ]]; then
             echo "Quality gate still failing after Devin remediation — human review required."
           elif [[ "$DEVIN_ALLOWED" != "true" ]]; then
-            echo "Quality gate failed — Devin was not triggered because the PR author or actor is not in DEVIN_TRUSTED_AUTHORS. Human review required."
+            echo "Quality gate failed — Devin was not triggered because the PR author, actor, or pusher is not in DEVIN_TRUSTED_AUTHORS. Human review required."
           else
             echo "Quality gate failed — Devin has been triggered for auto-remediation."
           fi
