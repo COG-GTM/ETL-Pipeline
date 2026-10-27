@@ -28,9 +28,9 @@ pip install -r requirements.txt
 # Run ETL pipeline locally
 python main.py
 
-# Run with Docker
+# Run with Docker (joins the compose network; Postgres is only published on host loopback)
 docker build -t etl-pipeline .
-docker run --env-file .env etl-pipeline
+docker run --network etl-pipeline -e DB_HOST=postgres -e DB_PORT=5432 --env-file .env etl-pipeline
 
 # Stop database
 docker-compose down
