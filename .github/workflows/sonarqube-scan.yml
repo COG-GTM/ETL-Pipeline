@@ -261,23 +261,26 @@ jobs:
       pull-requests: write
 
     steps:
-      # Fail closed: an environment without required reviewers would let the
-      # secret-backed session start with no maintainer approval.
-      - name: Require Maintainer Approval Gate
+      # Fail closed: require that a reviewer actually approved this run's
+      # devin-remediation deployment. Without required reviewers on the
+      # environment there is no approval, so the session is never started.
+      - name: Require Maintainer Approval
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           API_URL: ${{ github.api_url }}
           REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          RULES=$(curl -sf \
+          APPROVALS=$(curl -sf \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "$API_URL/repos/$REPO/environments/devin-remediation" \
-            | jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' || echo 0)
-          if [[ "$RULES" -lt 1 ]]; then
-            echo "::error::The devin-remediation environment has no required reviewers. Configure them to enable auto-remediation."
+            "$API_URL/repos/$REPO/actions/runs/$RUN_ID/approvals" \
+            | jq '[.[]? | select(.state == "approved" and any(.environments[]?; .name == "devin-remediation"))] | length' || echo 0)
+          if [[ "${APPROVALS:-0}" -lt 1 ]]; then
+            echo "::error::No maintainer approval for the devin-remediation environment on this run. Add required reviewers to that environment to enable auto-remediation."
             exit 1
           fi
+          echo "Maintainer approval found."
 
       - name: Trigger Devin Remediation
         id: trigger-devin
