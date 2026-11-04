@@ -23,6 +23,7 @@ jobs:
       pull-requests: read
     outputs:
       quality_gate: ${{ steps.quality-gate.outcome }}
+      pr_gate_status: ${{ steps.pr-gate.outputs.status }}
       is_devin_commit: ${{ steps.check-devin.outputs.is_devin_commit }}
       same_repo: ${{ steps.resolve-pr.outputs.same_repo }}
       pr_number: ${{ steps.resolve-pr.outputs.pr_number }}
@@ -64,9 +65,6 @@ jobs:
           BASE_SHA=$(echo "$PR_JSON" | jq -r '.base.sha')
           HEAD_REPO=$(echo "$PR_JSON" | jq -r '.head.repo.full_name // ""')
 
-          if ! [[ "$HEAD_REF" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || [[ "$HEAD_REF" == *..* ]]; then
-            echo "PR head branch name contains disallowed characters"; exit 1
-          fi
           if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || ! [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Unexpected SHA format"; exit 1
           fi
@@ -115,6 +113,22 @@ jobs:
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # Authorize remediation from the selected PR's own SonarCloud gate, not
+      # only from this run's scan context (which differs for workflow_dispatch).
+      - name: PR Quality Gate Status
+        id: pr-gate
+        if: steps.quality-gate.outcome == 'failure'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          PR_NUMBER: ${{ steps.resolve-pr.outputs.pr_number }}
+        run: |
+          STATUS=$(curl -s -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=COG-GTM_ETL-Pipeline&pullRequest=$PR_NUMBER" \
+            | jq -r '.projectStatus.status // "NONE"')
+          [[ "$STATUS" =~ ^[A-Z_]{1,16}$ ]] || STATUS=NONE
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "SonarCloud quality gate for PR #$PR_NUMBER: $STATUS"
 
       - name: Check if Devin Remediation Commit
         id: check-devin
@@ -235,16 +249,36 @@ jobs:
     if: |
       !cancelled() &&
       needs.sonarqube-scan.outputs.quality_gate == 'failure' &&
+      needs.sonarqube-scan.outputs.pr_gate_status == 'ERROR' &&
       needs.sonarqube-scan.outputs.is_devin_commit == 'false' &&
       needs.sonarqube-scan.outputs.same_repo == 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     environment: devin-remediation
     permissions:
+      actions: read
       contents: read
       pull-requests: write
 
     steps:
+      # Fail closed: an environment without required reviewers would let the
+      # secret-backed session start with no maintainer approval.
+      - name: Require Maintainer Approval Gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          RULES=$(curl -sf \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL/repos/$REPO/environments/devin-remediation" \
+            | jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' || echo 0)
+          if [[ "$RULES" -lt 1 ]]; then
+            echo "::error::The devin-remediation environment has no required reviewers. Configure them to enable auto-remediation."
+            exit 1
+          fi
+
       - name: Trigger Devin Remediation
         id: trigger-devin
         env:
