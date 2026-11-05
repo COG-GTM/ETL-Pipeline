@@ -109,25 +109,74 @@ class DataQualityEngine:
         name = str(col)
         return name == "id" or name.endswith("_id") or name.endswith("_key")
 
+    @staticmethod
+    def normalize_primary_keys(
+        primary_keys: Optional[Iterable[str]],
+    ) -> Optional[tuple[str, ...]]:
+        """Materialize ``primary_keys`` as an ordered tuple of names.
+
+        A single string is one column name; ``None`` means infer.
+        """
+        if primary_keys is None:
+            return None
+        if isinstance(primary_keys, str):
+            return (primary_keys,)
+        return tuple(dict.fromkeys(str(c) for c in primary_keys))
+
     @classmethod
     def _infer_primary_keys(
         cls, df: pd.DataFrame, primary_keys: Optional[Iterable[str]] = None
-    ) -> set[str]:
-        """Pick primary key columns without looking at the data values.
+    ) -> tuple[str, ...]:
+        """Pick the primary key without looking at the data values.
 
-        Explicit ``primary_keys`` win. Otherwise ``id`` is the primary key
-        if present, else the leading column when it is an ID/key column.
+        Explicit ``primary_keys`` (one key, composite when several columns)
+        win. Otherwise ``id`` is the primary key if present, else the
+        leading column when it is an ID/key column.
         """
-        if primary_keys is not None:
-            if isinstance(primary_keys, str):
-                primary_keys = [primary_keys]
-            return {str(c) for c in primary_keys}
+        explicit = cls.normalize_primary_keys(primary_keys)
+        if explicit is not None:
+            return explicit
         columns = [str(c) for c in df.columns]
         if "id" in columns:
-            return {"id"}
+            return ("id",)
         if columns and cls._is_key_column(columns[0]):
-            return {columns[0]}
-        return set()
+            return (columns[0],)
+        return ()
+
+    def _check_primary_key(self, df: pd.DataFrame, pk_cols: tuple[str, ...]) -> None:
+        name = "_".join(pk_cols)
+        label = ", ".join(pk_cols)
+        kind = "primary key column" if len(pk_cols) == 1 else "composite primary key"
+        rule = QualityRule(f"uniqueness_{name}", f"Check uniqueness for {kind} '{label}'", "critical")
+        details: dict[str, Any] = {
+            "column": label,
+            "columns": list(pk_cols),
+            "inferred_role": "primary_key",
+        }
+        rule.details = details
+
+        by_name = {str(c): c for c in df.columns}
+        missing = [c for c in pk_cols if c not in by_name]
+        if missing:
+            rule.passed = False
+            details["missing_columns"] = missing
+            self.rules.append(rule)
+            return
+
+        key_df = df[[by_name[c] for c in pk_cols]]
+        complete = key_df.dropna()
+        null_ids = int(len(key_df) - len(complete))
+        dup_ids = int(complete.duplicated().sum())
+        unique_ratio = (len(complete) - dup_ids) / len(complete) if len(complete) > 0 else 1.0
+        rule.passed = dup_ids == 0 and null_ids == 0
+        details.update(
+            {
+                "duplicate_values": dup_ids,
+                "null_values": null_ids,
+                "unique_ratio": round(unique_ratio, 4),
+            }
+        )
+        self.rules.append(rule)
 
     def _check_uniqueness(
         self, df: pd.DataFrame, primary_keys: Optional[Iterable[str]] = None
@@ -139,45 +188,27 @@ class DataQualityEngine:
         self.rules.append(rule)
 
         pk_cols = self._infer_primary_keys(df, primary_keys)
-        missing_pks = sorted(pk_cols - {str(c) for c in df.columns})
-        for col in missing_pks:
-            id_rule = QualityRule(
-                f"uniqueness_{col}",
-                f"Check uniqueness for primary key column '{col}'",
-                "critical",
-            )
-            id_rule.passed = False
-            id_rule.details = {
-                "column": col,
-                "error": "primary key column missing from dataset",
-                "inferred_role": "primary_key",
-            }
-            self.rules.append(id_rule)
+        if pk_cols:
+            self._check_primary_key(df, pk_cols)
 
         for col in df.columns:
-            is_primary_key = str(col) in pk_cols
-            if not (is_primary_key or self._is_key_column(col)):
+            if not self._is_key_column(col) or (str(col),) == pk_cols:
                 continue
             non_null = df[col].dropna()
             dup_ids = int(non_null.duplicated().sum())
-            null_ids = int(len(df) - len(non_null))
             unique_ratio = non_null.nunique() / len(non_null) if len(non_null) > 0 else 1.0
-            if is_primary_key:
-                severity = "critical"
-                description = f"Check uniqueness for primary key column '{col}'"
-            else:
-                severity = "info"
-                description = f"Check uniqueness for foreign key column '{col}' (duplicates expected)"
-            id_rule = QualityRule(f"uniqueness_{col}", description, severity)
-            id_rule.passed = (dup_ids == 0 and null_ids == 0) if is_primary_key else True
+            id_rule = QualityRule(
+                f"uniqueness_{col}",
+                f"Check uniqueness for foreign key column '{col}' (duplicates expected)",
+                "info",
+            )
+            id_rule.passed = True
             id_rule.details = {
                 "column": col,
                 "duplicate_values": dup_ids,
                 "unique_ratio": round(unique_ratio, 4),
-                "inferred_role": "primary_key" if is_primary_key else "foreign_key",
+                "inferred_role": "foreign_key",
             }
-            if is_primary_key:
-                id_rule.details["null_values"] = null_ids
             self.rules.append(id_rule)
 
     def _check_consistency(self, df: pd.DataFrame) -> None:
@@ -314,7 +345,13 @@ class DataQualityEngine:
                 col = rule.details.get("column", "ID column")
                 role = rule.details.get("inferred_role", "unknown")
                 if role == "primary_key":
-                    recommendations.append(f"Fix duplicate IDs in '{col}' - this breaks referential integrity")
+                    if rule.details.get("missing_columns"):
+                        missing = ", ".join(rule.details["missing_columns"])
+                        recommendations.append(f"Primary key column(s) '{missing}' missing from dataset - fix the source extract or the primary_keys setting")
+                    if rule.details.get("null_values"):
+                        recommendations.append(f"Fill or reject null IDs in '{col}' - every row needs a primary key")
+                    if rule.details.get("duplicate_values"):
+                        recommendations.append(f"Fix duplicate IDs in '{col}' - this breaks referential integrity")
                 else:
                     recommendations.append(f"Foreign key '{col}' has expected duplicates - verify referential integrity with parent table")
             elif "valid_email" in rule.name:

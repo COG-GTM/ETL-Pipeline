@@ -96,8 +96,13 @@ def test_missing_explicit_primary_key_fails():
     report = DataQualityEngine().run_all_checks(
         df, "missing", primary_keys=["id"]
     )
-    assert _rule(report, "uniqueness_id")["passed"] is False
+    rule = _rule(report, "uniqueness_id")
+    assert rule["passed"] is False
+    assert rule["details"]["missing_columns"] == ["id"]
     assert report["critical_failures"] == 1
+    recs = " ".join(report["recommendations"])
+    assert "missing from dataset" in recs
+    assert "Fix duplicate IDs" not in recs
 
 
 def test_null_primary_key_fails():
@@ -107,6 +112,62 @@ def test_null_primary_key_fails():
     rule = _rule(report, "uniqueness_id")
     assert rule["passed"] is False
     assert rule["details"]["null_values"] == 1
+    recs = " ".join(report["recommendations"])
+    assert "null IDs in 'id'" in recs
+    assert "Fix duplicate IDs" not in recs
+
+
+def _order_lines(line_numbers):
+    """Build order lines keyed by ``order_id`` + ``line_number``."""
+    return pd.DataFrame(
+        {
+            "order_id": ["O1", "O1", "O2"],
+            "line_number": line_numbers,
+            "sku": ["a", "b", "c"],
+        }
+    )
+
+
+def test_composite_primary_key_allows_repeated_components():
+    """Unique ``(order_id, line_number)`` pairs pass the gate."""
+    gate = QualityGatePlaybook(
+        min_score=0, primary_keys=["order_id", "line_number"]
+    )
+    result = gate.execute(_order_lines([1, 2, 1]), "order_lines")
+    assert result["critical_failures"] == 0
+    assert result["gate_passed"] is True
+
+
+def test_composite_primary_key_duplicate_pair_fails():
+    """A repeated ``(order_id, line_number)`` pair fails critically."""
+    report = DataQualityEngine().run_all_checks(
+        _order_lines([1, 1, 1]),
+        "order_lines",
+        primary_keys=["order_id", "line_number"],
+    )
+    rule = _rule(report, "uniqueness_order_id_line_number")
+    assert rule["severity"] == "critical"
+    assert rule["passed"] is False
+    assert rule["details"]["duplicate_values"] == 1
+    assert report["critical_failures"] == 1
+
+
+def test_gate_reuses_generator_primary_keys():
+    """A generator of key names is honoured on every gate run."""
+    df = pd.DataFrame({"line": [1, 2], "order_id": ["O1", "O1"]})
+    gate = QualityGatePlaybook(
+        min_score=0, primary_keys=(c for c in ["order_id"])
+    )
+    for _ in range(2):
+        assert gate.execute(df, "orders")["gate_passed"] is False
+
+
+def test_string_primary_key_is_one_column():
+    """A plain string names a single primary key column."""
+    df = pd.DataFrame({"line": [1, 2], "order_id": ["O1", "O1"]})
+    gate = QualityGatePlaybook(min_score=0, primary_keys="order_id")
+    assert gate.primary_keys == ("order_id",)
+    assert gate.execute(df, "orders")["critical_failures"] == 1
 
 
 if __name__ == "__main__":
