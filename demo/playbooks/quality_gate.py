@@ -29,7 +29,7 @@ class QualityGatePlaybook:
     ):
         self.min_score = min_score
         self.block_on_critical = block_on_critical
-        self.primary_keys = primary_keys
+        self.primary_keys = DataQualityEngine.normalize_primary_keys(primary_keys)
         self.quality_engine = DataQualityEngine()
         self.results: dict[str, Any] = {}
 
