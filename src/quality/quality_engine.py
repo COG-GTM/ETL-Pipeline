@@ -143,11 +143,19 @@ class DataQualityEngine:
             return (columns[0],)
         return ()
 
-    def _check_primary_key(self, df: pd.DataFrame, pk_cols: tuple[str, ...]) -> None:
-        name = "_".join(pk_cols)
+    def _check_primary_key(
+        self, df: pd.DataFrame, pk_cols: tuple[str, ...]
+    ) -> None:
         label = ", ".join(pk_cols)
-        kind = "primary key column" if len(pk_cols) == 1 else "composite primary key"
-        rule = QualityRule(f"uniqueness_{name}", f"Check uniqueness for {kind} '{label}'", "critical")
+        if len(pk_cols) == 1:
+            name = f"uniqueness_{pk_cols[0]}"
+            kind = "primary key column"
+        else:
+            name = f"uniqueness_composite[{label}]"
+            kind = "composite primary key"
+        rule = QualityRule(
+            name, f"Check uniqueness for {kind} '{label}'", "critical"
+        )
         details: dict[str, Any] = {
             "column": label,
             "columns": list(pk_cols),
@@ -167,7 +175,11 @@ class DataQualityEngine:
         complete = key_df.dropna()
         null_ids = int(len(key_df) - len(complete))
         dup_ids = int(complete.duplicated().sum())
-        unique_ratio = (len(complete) - dup_ids) / len(complete) if len(complete) > 0 else 1.0
+        unique_ratio = (
+            (len(complete) - dup_ids) / len(complete)
+            if len(complete) > 0
+            else 1.0
+        )
         rule.passed = dup_ids == 0 and null_ids == 0
         details.update(
             {
@@ -196,10 +208,15 @@ class DataQualityEngine:
                 continue
             non_null = df[col].dropna()
             dup_ids = int(non_null.duplicated().sum())
-            unique_ratio = non_null.nunique() / len(non_null) if len(non_null) > 0 else 1.0
+            unique_ratio = (
+                non_null.nunique() / len(non_null)
+                if len(non_null) > 0
+                else 1.0
+            )
             id_rule = QualityRule(
                 f"uniqueness_{col}",
-                f"Check uniqueness for foreign key column '{col}' (duplicates expected)",
+                f"Check uniqueness for foreign key column '{col}' "
+                "(duplicates expected)",
                 "info",
             )
             id_rule.passed = True
@@ -345,13 +362,24 @@ class DataQualityEngine:
                 col = rule.details.get("column", "ID column")
                 role = rule.details.get("inferred_role", "unknown")
                 if role == "primary_key":
-                    if rule.details.get("missing_columns"):
-                        missing = ", ".join(rule.details["missing_columns"])
-                        recommendations.append(f"Primary key column(s) '{missing}' missing from dataset - fix the source extract or the primary_keys setting")
-                    if rule.details.get("null_values"):
-                        recommendations.append(f"Fill or reject null IDs in '{col}' - every row needs a primary key")
-                    if rule.details.get("duplicate_values"):
-                        recommendations.append(f"Fix duplicate IDs in '{col}' - this breaks referential integrity")
+                    details = rule.details
+                    if details.get("missing_columns"):
+                        missing = ", ".join(details["missing_columns"])
+                        recommendations.append(
+                            f"Primary key column(s) '{missing}' missing "
+                            "from dataset - fix the source extract or the "
+                            "primary_keys setting"
+                        )
+                    if details.get("null_values"):
+                        recommendations.append(
+                            f"Fill or reject null IDs in '{col}' - "
+                            "every row needs a primary key"
+                        )
+                    if details.get("duplicate_values"):
+                        recommendations.append(
+                            f"Fix duplicate IDs in '{col}' - "
+                            "this breaks referential integrity"
+                        )
                 else:
                     recommendations.append(f"Foreign key '{col}' has expected duplicates - verify referential integrity with parent table")
             elif "valid_email" in rule.name:
