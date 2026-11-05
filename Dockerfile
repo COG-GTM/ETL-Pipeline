@@ -1,14 +1,21 @@
-# Deriving the python image
-FROM python:3.8
+# Supported, minimal base image (python:3.8 is end of life)
+FROM python:3.12-slim
 
-# Create a working directory in Docker, makes life easier when running instructions
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
-# Copies all the source code into our directory to the Docker image
-COPY . /app
+# Install dependencies first so this layer is cached across code changes
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Installs all the libraries we will need to execute the code
-RUN pip install -r requirements.txt
+# Copy only what the pipeline needs to run; never the whole build context
+COPY main.py .
+COPY src/ src/
 
-# Tell Docker the command to run inside the container
+# Run as an unprivileged user
+RUN useradd --create-home --uid 10001 etl
+USER etl
+
 CMD ["python", "./main.py"]
