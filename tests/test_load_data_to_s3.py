@@ -11,6 +11,7 @@ from src.load_data_to_s3 import df_to_s3
 
 
 def _uploaded_rows(df):
+    """Run df_to_s3 with a mocked S3 client and parse the uploaded CSV."""
     client = mock.Mock()
     with mock.patch("src.load_data_to_s3.connect_to_s3", return_value=client):
         df_to_s3(df, "key.csv", "bucket", "id", "secret")
@@ -28,6 +29,7 @@ def _uploaded_rows(df):
     "\r=1+1",
 ])
 def test_formula_cells_are_prefixed_with_quote(payload):
+    """Formula-leading cells are exported with a leading single quote."""
     df = pd.DataFrame({"buyer_name": [payload], "sale_price": [25000.0]})
 
     rows = _uploaded_rows(df)
@@ -35,8 +37,11 @@ def test_formula_cells_are_prefixed_with_quote(payload):
     assert rows[0]["buyer_name"] == "'" + payload
 
 
-@pytest.mark.parametrize("payload", ["x\r=1+1", "x\n=1+1", "x\r\n@SUM(A1:A9)"])
+@pytest.mark.parametrize(
+    "payload", ["x\r=1+1", "x\n=1+1", "x\r\n@SUM(A1:A9)"]
+)
 def test_embedded_line_breaks_stay_inside_one_quoted_cell(payload):
+    """Embedded CR/LF stays quoted inside one cell instead of a new row."""
     df = pd.DataFrame({"buyer_name": [payload], "sale_price": [1.0]})
 
     rows = _uploaded_rows(df)
@@ -46,7 +51,10 @@ def test_embedded_line_breaks_stay_inside_one_quoted_cell(payload):
 
 
 def test_all_exported_text_columns_are_neutralized():
-    columns = ["model", "dealership_name", "region", "buyer_name", "service_type"]
+    """Every free-text column from the extract query is neutralized."""
+    columns = [
+        "model", "dealership_name", "region", "buyer_name", "service_type",
+    ]
     df = pd.DataFrame({c: ["=1+1"] for c in columns})
 
     row = _uploaded_rows(df)[0]
@@ -55,6 +63,7 @@ def test_all_exported_text_columns_are_neutralized():
 
 
 def test_safe_values_and_non_text_columns_are_unchanged():
+    """Plain text, numbers (incl. negatives), dates and NULLs are kept."""
     df = pd.DataFrame({
         "vin": ["1HGCM82633A004352"],
         "buyer_name": ["John Doe"],
@@ -79,6 +88,7 @@ def test_safe_values_and_non_text_columns_are_unchanged():
 
 
 def test_input_dataframe_is_not_mutated():
+    """neutralize_csv_formulas returns a copy and leaves the input as is."""
     df = pd.DataFrame({"buyer_name": ["=1+1"]})
 
     load_data_to_s3.neutralize_csv_formulas(df)
@@ -87,7 +97,9 @@ def test_input_dataframe_is_not_mutated():
 
 
 def test_string_dtype_columns_are_neutralized():
-    df = pd.DataFrame({"buyer_name": pd.Series(["@x", "ok", None], dtype="string")})
+    """pandas StringDtype columns are neutralized and NA is preserved."""
+    names = pd.Series(["@x", "ok", None], dtype="string")
+    df = pd.DataFrame({"buyer_name": names})
 
     out = load_data_to_s3.neutralize_csv_formulas(df)
 
