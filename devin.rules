@@ -123,7 +123,8 @@ Create `.env` file from `.env.example` with:
 ## Docker Guidelines
 
 ### Container Best Practices
-- Use specific Python version (3.8)
+- Use a specific, supported Python version (3.12, `python:3.12-slim`); 3.8 is end of life
+- Run as a non-root USER and COPY only what the app needs (no `COPY . /app`)
 - Copy requirements.txt first for better layer caching
 - Set appropriate WORKDIR
 - Use multi-stage builds for production
