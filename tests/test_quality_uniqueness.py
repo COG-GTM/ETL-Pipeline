@@ -145,11 +145,30 @@ def test_composite_primary_key_duplicate_pair_fails():
         "order_lines",
         primary_keys=["order_id", "line_number"],
     )
-    rule = _rule(report, "uniqueness_order_id_line_number")
+    rule = _rule(report, "uniqueness_composite[order_id, line_number]")
     assert rule["severity"] == "critical"
     assert rule["passed"] is False
     assert rule["details"]["duplicate_values"] == 1
     assert report["critical_failures"] == 1
+
+
+def test_composite_rule_name_does_not_clash_with_column():
+    """A column named like the joined key keeps its own rule."""
+    df = pd.DataFrame(
+        {
+            "order": ["O1", "O1"],
+            "item_id": [1, 2],
+            "order_item_id": ["X", "X"],
+        }
+    )
+    report = DataQualityEngine().run_all_checks(
+        df, "items", primary_keys=["order", "item_id"]
+    )
+    names = [r["rule"] for r in report["rules"]]
+    assert len(names) == len(set(names))
+    assert _rule(report, "uniqueness_order_item_id")["severity"] == "info"
+    pk = _rule(report, "uniqueness_composite[order, item_id]")
+    assert pk["passed"] is True
 
 
 def test_gate_reuses_generator_primary_keys():
