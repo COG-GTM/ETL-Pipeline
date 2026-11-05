@@ -39,6 +39,7 @@ class DataQualityEngine:
         self._check_validity(df)
         self._check_timeliness(df)
         self._check_accuracy(df)
+        evaluated = self._check_not_empty(df)
 
         total = len(self.rules)
         passed = sum(1 for r in self.rules if r.passed)
@@ -47,18 +48,19 @@ class DataQualityEngine:
         critical_failures = sum(1 for r in self.rules if not r.passed and r.severity == "critical")
         error_failures = sum(1 for r in self.rules if not r.passed and r.severity == "error")
 
-        if total > 0:
+        if evaluated and total > 0:
             base_score = (passed / total) * 100
             penalty = critical_failures * 15 + error_failures * 8
             score = max(0, round(base_score - penalty, 1))
         else:
-            score = 100.0
+            score = 0.0
 
         report = {
             "source": source_name,
             "checked_at": datetime.now().isoformat(),
             "overall_score": score,
             "grade": self._score_to_grade(score),
+            "evaluated": evaluated,
             "total_checks": total,
             "passed": passed,
             "failed": failed,
@@ -74,8 +76,8 @@ class DataQualityEngine:
         rule = QualityRule("completeness_overall", "Check overall data completeness", "error")
         total_cells = df.shape[0] * df.shape[1]
         null_cells = int(df.isnull().sum().sum())
-        completeness_pct = round((1 - null_cells / total_cells) * 100, 2) if total_cells > 0 else 100
-        rule.passed = completeness_pct >= 95
+        completeness_pct = round((1 - null_cells / total_cells) * 100, 2) if total_cells > 0 else 0
+        rule.passed = total_cells > 0 and completeness_pct >= 95
         rule.details = {
             "total_cells": total_cells,
             "null_cells": null_cells,
@@ -98,6 +100,20 @@ class DataQualityEngine:
                     "null_percentage": round(null_count / len(df) * 100, 2),
                 }
                 self.rules.append(col_rule)
+
+    def _check_not_empty(self, df: pd.DataFrame) -> bool:
+        """Fail closed when there are no rows or columns to evaluate."""
+        if not df.empty:
+            return True
+        rule = QualityRule(
+            "non_empty_dataset",
+            "Check that the source produced rows to evaluate",
+            "critical",
+        )
+        rule.passed = False
+        rule.details = {"row_count": df.shape[0], "column_count": df.shape[1]}
+        self.rules.append(rule)
+        return False
 
     def _check_uniqueness(self, df: pd.DataFrame) -> None:
         rule = QualityRule("no_duplicate_rows", "Check for duplicate rows", "error")
@@ -253,7 +269,14 @@ class DataQualityEngine:
         for rule in self.rules:
             if rule.passed:
                 continue
-            if "completeness" in rule.name and rule.severity in ("error", "critical"):
+            if rule.name == "non_empty_dataset":
+                recommendations.append(
+                    "Source produced no rows - verify the extract/parser "
+                    "before trusting or loading this data"
+                )
+            elif rule.details.get("total_cells") == 0:
+                continue
+            elif "completeness" in rule.name and rule.severity in ("error", "critical"):
                 col = rule.details.get("column", "multiple columns")
                 recommendations.append(f"Address missing values in '{col}' - consider imputation or requiring at source")
             elif "duplicate" in rule.name:
@@ -292,6 +315,8 @@ class DataQualityEngine:
         grade_bar = "#" * int(score / 2) + "-" * (50 - int(score / 2))
         lines.append(f"  QUALITY SCORE: {score}/100  Grade: {grade}")
         lines.append(f"  [{grade_bar}]")
+        if not quality_result.get("evaluated", True):
+            lines.append("  NOT EVALUATED: source produced no rows")
         lines.append("")
 
         lines.append(f"  Total Checks: {quality_result['total_checks']}")

@@ -63,6 +63,7 @@ class QualityGatePlaybook:
             "action": action,
             "quality_score": score,
             "quality_grade": quality_report.get("grade", "F"),
+            "evaluated": quality_report.get("evaluated", False),
             "min_score": self.min_score,
             "critical_failures": critical,
             "total_checks": quality_report.get("total_checks", 0),

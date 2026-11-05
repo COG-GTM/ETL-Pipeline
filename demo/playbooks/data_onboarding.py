@@ -13,7 +13,6 @@ import os
 from datetime import datetime
 from typing import Any
 
-import pandas as pd
 
 from src.profiler import SourceProfiler, SchemaDetector
 from src.quality import DataQualityEngine
@@ -59,26 +58,7 @@ class DataOnboardingPlaybook:
         self.results["steps"]["schema"] = schema
 
         print(f"  Step 4/6: Assessing data quality...")
-        ext = os.path.splitext(source_path)[1].lower()
-        if ext == ".csv":
-            df = pd.read_csv(source_path)
-        elif ext == ".json":
-            import json
-            with open(source_path) as f:
-                raw = json.load(f)
-            if isinstance(raw, list):
-                df = pd.json_normalize(raw)
-            elif isinstance(raw, dict):
-                for key in ["data", "inventory", "items"]:
-                    if key in raw and isinstance(raw[key], list):
-                        df = pd.json_normalize(raw[key])
-                        break
-                else:
-                    df = pd.json_normalize(raw)
-            else:
-                df = pd.DataFrame([raw])
-        else:
-            df = pd.DataFrame()
+        df = self.profiler.load_dataframe(source_path)
 
         quality = self.quality_engine.run_all_checks(df, source_path)
         self.results["steps"]["quality"] = quality
@@ -161,6 +141,8 @@ class DataOnboardingPlaybook:
 
         quality = self.results.get("steps", {}).get("quality", {})
         lines.append(f"  Quality Score: {quality.get('overall_score', 'N/A')}/100 (Grade: {quality.get('grade', 'N/A')})")
+        if quality and not quality.get("evaluated", True):
+            lines.append("  NOT EVALUATED: source produced no rows")
         lines.append("")
 
         recs = self.results.get("steps", {}).get("recommendations", [])
