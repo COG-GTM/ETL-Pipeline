@@ -20,7 +20,21 @@ This demo showcases an automated security remediation pipeline:
 | Secret | Description |
 |--------|-------------|
 | `SONAR_TOKEN` | SonarCloud token for the `cog-gtm` organization |
-| `DEVIN_API_KEY` | Devin API key for creating remediation sessions |
+| `DEVIN_API_KEY` | Devin API key for creating remediation sessions. Use a dedicated service user whose Devin organization has **no secrets** and whose GitHub access is limited to this repository. |
+
+### GitHub Variables (Settings > Secrets and variables > Actions > Variables)
+
+| Variable | Description |
+|----------|-------------|
+| `DEVIN_TRUSTED_AUTHORS` | JSON array of GitHub logins allowed to trigger Devin, e.g. `["alice","bob"]`. A session is only created when the PR author, the user who triggered or dispatched the run, and the user who pushed the scanned commit are all listed. Unset means Devin is never triggered. |
+
+### Trust model
+
+The remediation session runs with Devin's credentials, so the workflow treats all PR content as untrusted:
+
+- Only same-repository PRs from allowlisted authors can start a session; fork PRs and `workflow_dispatch` inputs that do not match the PR's real head branch fail the job.
+- The prompt contains no PR-derived text (no branch name, file names, or SonarCloud messages) — only the PR number, the scanned commit SHA, and SonarCloud rule / issue keys. Devin looks the issues up itself.
+- Devin is told not to execute anything from the branch (tests, linters, hooks, build scripts) and the session is created with `secret_ids: []`.
 
 ### SonarCloud
 
@@ -79,6 +93,8 @@ def extract_vehicle_sales_data(dbname, host, port, user, password, region_filter
 
 ### Step 2: Open a PR
 
+The presenter's GitHub login must be listed in the `DEVIN_TRUSTED_AUTHORS` variable, otherwise the quality gate still fails but no Devin session is created.
+
 ```bash
 git checkout -b demo/add-region-filter
 # Make the change above to src/extract.py
@@ -99,8 +115,8 @@ git push origin demo/add-region-filter
 ### Step 4: Devin remediates
 
 Devin will:
-- Clone the repo and check out the PR branch
-- Read the SonarCloud findings
+- Clone the repo, check out the PR branch and confirm it is still at the scanned commit
+- Look up the SonarCloud findings by issue key
 - Replace the string-formatted SQL with a parameterized query
 - Commit with `[devin-fix]` tag and push
 - Post a comment on the PR explaining the fix
