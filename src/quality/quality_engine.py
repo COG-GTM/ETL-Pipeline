@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterable, Optional
 
 import pandas as pd
 
@@ -29,12 +29,17 @@ class DataQualityEngine:
         self.rules: list[QualityRule] = []
         self.results: list[dict[str, Any]] = []
 
-    def run_all_checks(self, df: pd.DataFrame, source_name: str = "unknown") -> dict[str, Any]:
+    def run_all_checks(
+        self,
+        df: pd.DataFrame,
+        source_name: str = "unknown",
+        primary_keys: Optional[Iterable[str]] = None,
+    ) -> dict[str, Any]:
         self.rules = []
         self.results = []
 
         self._check_completeness(df)
-        self._check_uniqueness(df)
+        self._check_uniqueness(df, primary_keys)
         self._check_consistency(df)
         self._check_validity(df)
         self._check_timeliness(df)
@@ -99,34 +104,81 @@ class DataQualityEngine:
                 }
                 self.rules.append(col_rule)
 
-    def _check_uniqueness(self, df: pd.DataFrame) -> None:
+    @staticmethod
+    def _is_key_column(col: Any) -> bool:
+        name = str(col)
+        return name == "id" or name.endswith("_id") or name.endswith("_key")
+
+    @classmethod
+    def _infer_primary_keys(
+        cls, df: pd.DataFrame, primary_keys: Optional[Iterable[str]] = None
+    ) -> set[str]:
+        """Pick primary key columns without looking at the data values.
+
+        Explicit ``primary_keys`` win. Otherwise ``id`` is the primary key
+        if present, else the leading column when it is an ID/key column.
+        """
+        if primary_keys is not None:
+            if isinstance(primary_keys, str):
+                primary_keys = [primary_keys]
+            return {str(c) for c in primary_keys}
+        columns = [str(c) for c in df.columns]
+        if "id" in columns:
+            return {"id"}
+        if columns and cls._is_key_column(columns[0]):
+            return {columns[0]}
+        return set()
+
+    def _check_uniqueness(
+        self, df: pd.DataFrame, primary_keys: Optional[Iterable[str]] = None
+    ) -> None:
         rule = QualityRule("no_duplicate_rows", "Check for duplicate rows", "error")
         dup_count = int(df.duplicated().sum())
         rule.passed = dup_count == 0
         rule.details = {"duplicate_rows": dup_count, "duplicate_percentage": round(dup_count / len(df) * 100, 2) if len(df) > 0 else 0}
         self.rules.append(rule)
 
+        pk_cols = self._infer_primary_keys(df, primary_keys)
+        missing_pks = sorted(pk_cols - {str(c) for c in df.columns})
+        for col in missing_pks:
+            id_rule = QualityRule(
+                f"uniqueness_{col}",
+                f"Check uniqueness for primary key column '{col}'",
+                "critical",
+            )
+            id_rule.passed = False
+            id_rule.details = {
+                "column": col,
+                "error": "primary key column missing from dataset",
+                "inferred_role": "primary_key",
+            }
+            self.rules.append(id_rule)
+
         for col in df.columns:
-            if col.endswith("_id") or col == "id" or col.endswith("_key"):
-                non_null = df[col].dropna()
-                dup_ids = int(non_null.duplicated().sum())
-                unique_ratio = non_null.nunique() / len(non_null) if len(non_null) > 0 else 1.0
-                is_primary_key = unique_ratio == 1.0
-                if is_primary_key:
-                    severity = "critical"
-                    description = f"Check uniqueness for primary key column '{col}'"
-                else:
-                    severity = "info"
-                    description = f"Check uniqueness for foreign key column '{col}' (duplicates expected)"
-                id_rule = QualityRule(f"uniqueness_{col}", description, severity)
-                id_rule.passed = dup_ids == 0 if is_primary_key else True
-                id_rule.details = {
-                    "column": col,
-                    "duplicate_values": dup_ids,
-                    "unique_ratio": round(unique_ratio, 4),
-                    "inferred_role": "primary_key" if is_primary_key else "foreign_key",
-                }
-                self.rules.append(id_rule)
+            is_primary_key = str(col) in pk_cols
+            if not (is_primary_key or self._is_key_column(col)):
+                continue
+            non_null = df[col].dropna()
+            dup_ids = int(non_null.duplicated().sum())
+            null_ids = int(len(df) - len(non_null))
+            unique_ratio = non_null.nunique() / len(non_null) if len(non_null) > 0 else 1.0
+            if is_primary_key:
+                severity = "critical"
+                description = f"Check uniqueness for primary key column '{col}'"
+            else:
+                severity = "info"
+                description = f"Check uniqueness for foreign key column '{col}' (duplicates expected)"
+            id_rule = QualityRule(f"uniqueness_{col}", description, severity)
+            id_rule.passed = (dup_ids == 0 and null_ids == 0) if is_primary_key else True
+            id_rule.details = {
+                "column": col,
+                "duplicate_values": dup_ids,
+                "unique_ratio": round(unique_ratio, 4),
+                "inferred_role": "primary_key" if is_primary_key else "foreign_key",
+            }
+            if is_primary_key:
+                id_rule.details["null_values"] = null_ids
+            self.rules.append(id_rule)
 
     def _check_consistency(self, df: pd.DataFrame) -> None:
         for col in df.select_dtypes(include=["object"]).columns:

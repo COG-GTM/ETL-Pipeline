@@ -10,7 +10,7 @@ Usage:
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterable, Optional
 
 import pandas as pd
 
@@ -21,9 +21,15 @@ class QualityGatePlaybook:
     PLAYBOOK_NAME = "quality_gate"
     DESCRIPTION = "Enforce data quality standards with configurable thresholds"
 
-    def __init__(self, min_score: float = 75, block_on_critical: bool = True):
+    def __init__(
+        self,
+        min_score: float = 75,
+        block_on_critical: bool = True,
+        primary_keys: Optional[Iterable[str]] = None,
+    ):
         self.min_score = min_score
         self.block_on_critical = block_on_critical
+        self.primary_keys = primary_keys
         self.quality_engine = DataQualityEngine()
         self.results: dict[str, Any] = {}
 
@@ -33,7 +39,9 @@ class QualityGatePlaybook:
         print(f"\n  QUALITY GATE: Evaluating '{source_name}'...")
         print(f"  Minimum acceptable score: {self.min_score}")
 
-        quality_report = self.quality_engine.run_all_checks(df, source_name)
+        quality_report = self.quality_engine.run_all_checks(
+            df, source_name, primary_keys=self.primary_keys
+        )
 
         score = quality_report.get("overall_score", 0)
         critical = quality_report.get("critical_failures", 0)
