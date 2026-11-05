@@ -24,7 +24,7 @@ POSTGRES_RESERVED_WORDS = frozenset([
     "user", "using", "variadic", "verbose", "when", "where", "window", "with",
 ])
 
-_PLAIN_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_PLAIN_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
 
 _ALLOWED_BASE_TYPES = (
     "SMALLINT", "INTEGER", "INT", "BIGINT", "SERIAL", "BIGSERIAL",
@@ -46,7 +46,7 @@ class UnsafeDDLValueError(ValueError):
 def quote_identifier(name: str) -> str:
     """Render a table/column name as a PostgreSQL identifier that cannot break out of its position.
 
-    Plain names (letters, digits, underscore) keep their previous unquoted meaning:
+    Plain names (letters, digits, underscore, non-leading ``$``) keep their previous unquoted meaning:
     they are case-folded to lower case, as PostgreSQL does for unquoted
     identifiers, and are only double-quoted when they are reserved words.
     Any other name is emitted as a double-quoted identifier with embedded
