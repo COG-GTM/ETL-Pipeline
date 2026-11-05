@@ -23,6 +23,15 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Validate branch name
+        env:
+          HEAD_REF: ${{ github.event.inputs.pr_branch || github.head_ref }}
+        run: |
+          if [[ -z "$HEAD_REF" || "$HEAD_REF" == -* || ! "$HEAD_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::Invalid branch name: must not start with '-' and may only contain [A-Za-z0-9._/-]"
+            exit 1
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -60,9 +69,9 @@ jobs:
         env:
           HEAD_REF: ${{ github.event.inputs.pr_branch || github.head_ref }}
         run: |
-          git fetch origin "$HEAD_REF"
-          COMMIT_AUTHOR=$(git log -1 --format='%an' "origin/$HEAD_REF")
-          COMMIT_MSG=$(git log -1 --format='%s' "origin/$HEAD_REF")
+          git fetch origin -- "+refs/heads/$HEAD_REF:refs/remotes/origin/$HEAD_REF"
+          COMMIT_AUTHOR=$(git log -1 --format='%an' "refs/remotes/origin/$HEAD_REF" --)
+          COMMIT_MSG=$(git log -1 --format='%s' "refs/remotes/origin/$HEAD_REF" --)
           echo "Checking PR commit - Author: $COMMIT_AUTHOR"
           echo "Commit message: $COMMIT_MSG"
 
