@@ -26,7 +26,11 @@ def _designer(table_name, columns):
     return designer
 
 
-@pytest.mark.parametrize("name, expected", [("customer_id", "customer_id"), ("CustomerName", "customername")])
+@pytest.mark.parametrize("name, expected", [
+    ("customer_id", "customer_id"),
+    ("CustomerName", "customername"),
+    ("Cost$USD", "cost$usd"),
+])
 def test_plain_names_keep_unquoted_meaning(name, expected):
     """Plain names keep PostgreSQL's unquoted (lower-cased) meaning."""
     assert quote_identifier(name) == expected
@@ -42,6 +46,7 @@ def test_reserved_words_are_quoted(name, expected):
     (MALICIOUS_COLUMN, '"x); DROP TABLE t; --"'),
     ('a"); DROP TABLE t; --', '"a""); DROP TABLE t; --"'),
     ("shipping.carrier", '"shipping.carrier"'),
+    ("$cost", '"$cost"'),
 ])
 def test_other_names_become_one_quoted_identifier(name, expected):
     """Any other name becomes exactly one quoted identifier with embedded quotes doubled."""
