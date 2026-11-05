@@ -26,7 +26,11 @@ def _designer(table_name, columns):
     return designer
 
 
-@pytest.mark.parametrize("name, expected", [("customer_id", "customer_id"), ("CustomerName", "customername")])
+@pytest.mark.parametrize("name, expected", [
+    ("customer_id", "customer_id"),
+    ("CustomerName", "customername"),
+    ("Order$", "order$"),
+])
 def test_plain_names_keep_unquoted_meaning(name, expected):
     """Plain names keep PostgreSQL's unquoted (lower-cased) meaning."""
     assert quote_identifier(name) == expected
@@ -42,6 +46,7 @@ def test_reserved_words_are_quoted(name, expected):
     (MALICIOUS_COLUMN, '"x); DROP TABLE t; --"'),
     ('a"); DROP TABLE t; --', '"a""); DROP TABLE t; --"'),
     ("shipping.carrier", '"shipping.carrier"'),
+    ("$amount", '"$amount"'),
 ])
 def test_other_names_become_one_quoted_identifier(name, expected):
     """Any other name becomes exactly one quoted identifier with embedded quotes doubled."""
@@ -139,3 +144,18 @@ def test_schema_detector_quotes_malicious_names_everywhere():
     assert 'CREATE TABLE "t; DROP TABLE a" (' in ddl
     assert '    "x); DROP TABLE t; --" VARCHAR(255)' in ddl
     assert 'CREATE INDEX "idx_t; DROP TABLE a_x); DROP TABLE t; --" ON "t; DROP TABLE a" ("x); DROP TABLE t; --");' in ddl
+
+
+def test_dollar_sign_names_keep_unquoted_meaning_in_both_generators():
+    """Mixed-case names with a non-leading $ fold to lower case like before."""
+    target = _designer("transactions", [_column("Order$")]).generate_target_ddl()
+    assert "    order$ VARCHAR(255),\n" in target
+    schema = {
+        "detected_table_name": "Sales$",
+        "columns": [_column("Order$")],
+        "primary_key_candidates": [],
+        "indexes_recommended": [],
+    }
+    detected = SchemaDetector().generate_ddl(schema)
+    assert "CREATE TABLE sales$ (" in detected
+    assert "    order$ VARCHAR(255)" in detected
