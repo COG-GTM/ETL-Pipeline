@@ -30,6 +30,9 @@ def _designer(table_name, columns):
     ("customer_id", "customer_id"),
     ("CustomerName", "customername"),
     ("Cost$USD", "cost$usd"),
+    ("München", "münchen"),
+    ("Ölpreis_EUR", "Ölpreis_eur"),
+    ("Straße2", "straße2"),
 ])
 def test_plain_names_keep_unquoted_meaning(name, expected):
     """Plain names keep PostgreSQL's unquoted (lower-cased) meaning."""
@@ -47,6 +50,8 @@ def test_reserved_words_are_quoted(name, expected):
     ('a"); DROP TABLE t; --', '"a""); DROP TABLE t; --"'),
     ("shipping.carrier", '"shipping.carrier"'),
     ("$cost", '"$cost"'),
+    ("prix€", '"prix€"'),
+    ("2München", '"2München"'),
 ])
 def test_other_names_become_one_quoted_identifier(name, expected):
     """Any other name becomes exactly one quoted identifier with embedded quotes doubled."""

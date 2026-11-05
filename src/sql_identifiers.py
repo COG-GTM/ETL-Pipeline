@@ -24,7 +24,18 @@ POSTGRES_RESERVED_WORDS = frozenset([
     "user", "using", "variadic", "verbose", "when", "where", "window", "with",
 ])
 
-_PLAIN_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
+_ASCII_UPPER_TO_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+
+
+def _is_plain_identifier(name: str) -> bool:
+    """Match PostgreSQL's unquoted identifier syntax, limiting non-ASCII characters to letters, marks and digits."""
+    for i, ch in enumerate(name):
+        if ch.isascii():
+            if not (ch.isalpha() or ch == "_" or (i > 0 and (ch.isdigit() or ch == "$"))):
+                return False
+        elif not unicodedata.category(ch).startswith(("L",) if i == 0 else ("L", "M", "N")):
+            return False
+    return True
 
 _ALLOWED_BASE_TYPES = (
     "SMALLINT", "INTEGER", "INT", "BIGINT", "SERIAL", "BIGSERIAL",
@@ -47,15 +58,16 @@ def quote_identifier(name: str) -> str:
     """Render a table/column name as a PostgreSQL identifier that cannot break out of its position.
 
     Plain names (letters, digits, underscore, non-leading ``$``) keep their previous unquoted meaning:
-    they are case-folded to lower case, as PostgreSQL does for unquoted
-    identifiers, and are only double-quoted when they are reserved words.
+    ASCII letters are case-folded to lower case, as PostgreSQL does for unquoted
+    identifiers (non-ASCII letters are left as-is), and the name is only
+    double-quoted when it is a reserved word.
     Any other name is emitted as a double-quoted identifier with embedded
     double quotes doubled, so it is always a single identifier token.
     """
     if not isinstance(name, str) or not name or "\x00" in name:
         raise UnsafeDDLValueError(f"Unsafe SQL identifier: {name!r}")
-    if _PLAIN_IDENTIFIER.fullmatch(name):
-        folded = name.lower()
+    if _is_plain_identifier(name):
+        folded = name.translate(_ASCII_UPPER_TO_LOWER)
         if folded not in POSTGRES_RESERVED_WORDS:
             return folded
         return f'"{folded}"'
