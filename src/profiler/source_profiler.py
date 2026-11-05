@@ -11,10 +11,32 @@ class SourceProfiler:
         self.profile_results: dict[str, Any] = {}
 
     def profile_csv(self, file_path: str) -> dict[str, Any]:
-        df = pd.read_csv(file_path)
-        return self._profile_dataframe(df, file_path, "csv")
+        return self._profile_dataframe(self.load_csv(file_path), file_path, "csv")
 
     def profile_json(self, file_path: str) -> dict[str, Any]:
+        return self._profile_dataframe(self.load_json(file_path), file_path, "json")
+
+    def profile_xml(self, file_path: str) -> dict[str, Any]:
+        return self._profile_dataframe(self.load_xml(file_path), file_path, "xml")
+
+    def profile_auto(self, file_path: str) -> dict[str, Any]:
+        df, format_type = self._load_with_format(file_path)
+        return self._profile_dataframe(df, file_path, format_type)
+
+    def load_auto(self, file_path: str) -> pd.DataFrame:
+        return self._load_with_format(file_path)[0]
+
+    def _load_with_format(self, file_path: str) -> tuple[pd.DataFrame, str]:
+        ext = os.path.splitext(file_path)[1].lower()
+        loaders = {".csv": self.load_csv, ".json": self.load_json, ".xml": self.load_xml}
+        if ext not in loaders:
+            raise ValueError(f"Unsupported file format: {ext}")
+        return loaders[ext](file_path), ext.lstrip(".")
+
+    def load_csv(self, file_path: str) -> pd.DataFrame:
+        return pd.read_csv(file_path)
+
+    def load_json(self, file_path: str) -> pd.DataFrame:
         with open(file_path, "r") as f:
             raw = json.load(f)
 
@@ -30,9 +52,9 @@ class SourceProfiler:
         else:
             df = pd.DataFrame([raw])
 
-        return self._profile_dataframe(df, file_path, "json")
+        return df
 
-    def profile_xml(self, file_path: str) -> dict[str, Any]:
+    def load_xml(self, file_path: str) -> pd.DataFrame:
         import xml.etree.ElementTree as ET
 
         tree = ET.parse(file_path)
@@ -52,19 +74,7 @@ class SourceProfiler:
                 if record:
                     records.append(record)
 
-        df = pd.DataFrame(records) if records else pd.DataFrame()
-        return self._profile_dataframe(df, file_path, "xml")
-
-    def profile_auto(self, file_path: str) -> dict[str, Any]:
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext == ".csv":
-            return self.profile_csv(file_path)
-        elif ext == ".json":
-            return self.profile_json(file_path)
-        elif ext == ".xml":
-            return self.profile_xml(file_path)
-        else:
-            raise ValueError(f"Unsupported file format: {ext}")
+        return pd.DataFrame(records) if records else pd.DataFrame()
 
     def _profile_dataframe(self, df: pd.DataFrame, source: str, format_type: str) -> dict[str, Any]:
         profile: dict[str, Any] = {

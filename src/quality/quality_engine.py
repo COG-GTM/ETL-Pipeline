@@ -33,6 +33,7 @@ class DataQualityEngine:
         self.rules = []
         self.results = []
 
+        has_data = self._check_has_data(df)
         self._check_completeness(df)
         self._check_uniqueness(df)
         self._check_consistency(df)
@@ -47,16 +48,18 @@ class DataQualityEngine:
         critical_failures = sum(1 for r in self.rules if not r.passed and r.severity == "critical")
         error_failures = sum(1 for r in self.rules if not r.passed and r.severity == "error")
 
-        if total > 0:
+        evaluated = has_data and total > 0
+        if evaluated:
             base_score = (passed / total) * 100
             penalty = critical_failures * 15 + error_failures * 8
             score = max(0, round(base_score - penalty, 1))
         else:
-            score = 100.0
+            score = 0.0
 
         report = {
             "source": source_name,
             "checked_at": datetime.now().isoformat(),
+            "evaluated": evaluated,
             "overall_score": score,
             "grade": self._score_to_grade(score),
             "total_checks": total,
@@ -70,11 +73,19 @@ class DataQualityEngine:
 
         return report
 
+    def _check_has_data(self, df: pd.DataFrame) -> bool:
+        rule = QualityRule("has_data", "Check that the source produced rows and columns to evaluate", "critical")
+        rows, cols = df.shape
+        rule.passed = rows > 0 and cols > 0
+        rule.details = {"row_count": rows, "column_count": cols}
+        self.rules.append(rule)
+        return rule.passed
+
     def _check_completeness(self, df: pd.DataFrame) -> None:
         rule = QualityRule("completeness_overall", "Check overall data completeness", "error")
         total_cells = df.shape[0] * df.shape[1]
         null_cells = int(df.isnull().sum().sum())
-        completeness_pct = round((1 - null_cells / total_cells) * 100, 2) if total_cells > 0 else 100
+        completeness_pct = round((1 - null_cells / total_cells) * 100, 2) if total_cells > 0 else 0
         rule.passed = completeness_pct >= 95
         rule.details = {
             "total_cells": total_cells,
@@ -253,7 +264,11 @@ class DataQualityEngine:
         for rule in self.rules:
             if rule.passed:
                 continue
-            if "completeness" in rule.name and rule.severity in ("error", "critical"):
+            if rule.name == "has_data":
+                recommendations.append("Source produced no rows to evaluate - verify the feed is not empty and its format is parsed")
+            elif "completeness" in rule.name and rule.severity in ("error", "critical"):
+                if rule.details.get("total_cells") == 0:
+                    continue
                 col = rule.details.get("column", "multiple columns")
                 recommendations.append(f"Address missing values in '{col}' - consider imputation or requiring at source")
             elif "duplicate" in rule.name:
@@ -291,6 +306,8 @@ class DataQualityEngine:
         score = quality_result["overall_score"]
         grade_bar = "#" * int(score / 2) + "-" * (50 - int(score / 2))
         lines.append(f"  QUALITY SCORE: {score}/100  Grade: {grade}")
+        if not quality_result.get("evaluated", True):
+            lines.append("  STATUS: NOT EVALUATED - no data to check")
         lines.append(f"  [{grade_bar}]")
         lines.append("")
 

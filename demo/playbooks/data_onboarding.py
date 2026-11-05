@@ -13,8 +13,6 @@ import os
 from datetime import datetime
 from typing import Any
 
-import pandas as pd
-
 from src.profiler import SourceProfiler, SchemaDetector
 from src.quality import DataQualityEngine
 
@@ -59,27 +57,7 @@ class DataOnboardingPlaybook:
         self.results["steps"]["schema"] = schema
 
         print(f"  Step 4/6: Assessing data quality...")
-        ext = os.path.splitext(source_path)[1].lower()
-        if ext == ".csv":
-            df = pd.read_csv(source_path)
-        elif ext == ".json":
-            import json
-            with open(source_path) as f:
-                raw = json.load(f)
-            if isinstance(raw, list):
-                df = pd.json_normalize(raw)
-            elif isinstance(raw, dict):
-                for key in ["data", "inventory", "items"]:
-                    if key in raw and isinstance(raw[key], list):
-                        df = pd.json_normalize(raw[key])
-                        break
-                else:
-                    df = pd.json_normalize(raw)
-            else:
-                df = pd.DataFrame([raw])
-        else:
-            df = pd.DataFrame()
-
+        df = self.profiler.load_auto(source_path)
         quality = self.quality_engine.run_all_checks(df, source_path)
         self.results["steps"]["quality"] = quality
 
@@ -111,7 +89,7 @@ class DataOnboardingPlaybook:
     ) -> list[dict[str, str]]:
         recs = []
 
-        if quality.get("overall_score", 100) < 80:
+        if quality.get("overall_score", 0) < 80:
             recs.append({
                 "priority": "high",
                 "area": "data_quality",
