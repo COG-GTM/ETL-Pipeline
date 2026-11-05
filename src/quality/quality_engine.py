@@ -106,6 +106,7 @@ class DataQualityEngine:
 
     @staticmethod
     def _is_key_column(col: Any) -> bool:
+        """Return True for ``id``, ``*_id`` and ``*_key`` column names."""
         name = str(col)
         return name == "id" or name.endswith("_id") or name.endswith("_key")
 
@@ -146,6 +147,7 @@ class DataQualityEngine:
     def _check_primary_key(
         self, df: pd.DataFrame, pk_cols: tuple[str, ...]
     ) -> None:
+        """Add one critical rule: ``pk_cols`` exist, are non-null, unique."""
         label = ", ".join(pk_cols)
         if len(pk_cols) == 1:
             name = f"uniqueness_{pk_cols[0]}"
@@ -193,6 +195,7 @@ class DataQualityEngine:
     def _check_uniqueness(
         self, df: pd.DataFrame, primary_keys: Optional[Iterable[str]] = None
     ) -> None:
+        """Check duplicate rows, the primary key and foreign key columns."""
         rule = QualityRule("no_duplicate_rows", "Check for duplicate rows", "error")
         dup_count = int(df.duplicated().sum())
         rule.passed = dup_count == 0
