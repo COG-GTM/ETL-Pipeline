@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.common.safe_xml import parse_xml_file
+from ..common.safe_xml import parse_xml_file
 
 
 class SourceProfiler:

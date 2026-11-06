@@ -38,12 +38,14 @@ VALID_FEED = """<?xml version="1.0"?>
 
 
 def _write(tmp_path, content):
+    """Write content to a feed file under tmp_path and return its path."""
     path = tmp_path / "feed.xml"
     path.write_text(content)
     return str(path)
 
 
 def test_valid_feed_is_parsed(tmp_path):
+    """DataConsolidator loads a DTD-free feed."""
     df = DataConsolidator().load_source("inventory", _write(tmp_path, VALID_FEED))
 
     assert not df.empty
@@ -52,12 +54,14 @@ def test_valid_feed_is_parsed(tmp_path):
 
 
 def test_profiler_parses_valid_feed(tmp_path):
+    """SourceProfiler profiles a DTD-free feed."""
     profile = SourceProfiler().profile_xml(_write(tmp_path, VALID_FEED))
 
     assert profile["row_count"] > 0
 
 
 def test_entity_expansion_is_rejected(tmp_path):
+    """DataConsolidator rejects a nested-entity DTD."""
     with pytest.raises(Exception) as exc_info:
         DataConsolidator().load_source("inventory", _write(tmp_path, BILLION_LAUGHS))
 
@@ -65,6 +69,7 @@ def test_entity_expansion_is_rejected(tmp_path):
 
 
 def test_entity_expansion_is_rejected_by_profiler(tmp_path):
+    """SourceProfiler rejects a nested-entity DTD."""
     with pytest.raises(Exception) as exc_info:
         SourceProfiler().profile_xml(_write(tmp_path, BILLION_LAUGHS))
 
@@ -72,6 +77,7 @@ def test_entity_expansion_is_rejected_by_profiler(tmp_path):
 
 
 def test_oversized_file_is_rejected(tmp_path):
+    """Files above max_bytes are rejected before parsing."""
     path = _write(tmp_path, VALID_FEED)
 
     with pytest.raises(ValueError, match="size limit"):
@@ -79,6 +85,7 @@ def test_oversized_file_is_rejected(tmp_path):
 
 
 def test_element_count_limit_is_enforced(tmp_path):
+    """Documents above max_elements are rejected."""
     path = _write(tmp_path, VALID_FEED)
 
     with pytest.raises(ValueError, match="element limit"):
