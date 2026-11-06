@@ -82,6 +82,8 @@ def test_normalizes_type_spelling_and_default():
     ("TIME WITHOUT TIME ZONE", "TIME WITHOUT TIME ZONE"),
     ("double  precision[]", "DOUBLE PRECISION[]"),
     ("BYTEA", "BYTEA"),
+    ("serial", "SERIAL"),
+    ("BIGSERIAL", "BIGSERIAL"),
 ])
 def test_allows_arrays_intervals_and_time_zones(dtype, expected):
     """Array, interval and time-zone type forms are accepted and normalized."""
@@ -104,7 +106,7 @@ def test_custom_types_render_in_both_generators():
 
 @pytest.mark.parametrize("dtype", [
     "VARCHAR(10); DROP TABLE z", "INTEGER DEFAULT pg_sleep(10)", "INTEGER REFERENCES t", "",
-    "TEXT[]; DROP TABLE z", "INTEGER[1:2]", "INTERVAL '1 day'", "INTEGER WITH TIME ZONE", "TEXT[] COLLATE \"C\"",
+    "TEXT[]; DROP TABLE z", "INTEGER[1:2]", "INTERVAL '1 day'", "INTEGER WITH TIME ZONE", "SERIAL[]", "bigserial [ ]", "TEXT[] COLLATE \"C\"",
 ])
 def test_rejects_injected_types(dtype):
     """Anything beyond a simple allowlisted type is rejected."""
