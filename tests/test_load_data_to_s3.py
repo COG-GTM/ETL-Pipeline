@@ -10,13 +10,27 @@ from src import load_data_to_s3
 from src.load_data_to_s3 import df_to_s3
 
 
-def _uploaded_rows(df):
-    """Run df_to_s3 with a mocked S3 client and parse the uploaded CSV."""
+def _uploaded_body(df):
+    """Run df_to_s3 with a mocked S3 client and return the uploaded CSV."""
     client = mock.Mock()
     with mock.patch("src.load_data_to_s3.connect_to_s3", return_value=client):
         df_to_s3(df, "key.csv", "bucket", "id", "secret")
-    body = client.put_object.call_args.kwargs["Body"]
+    return client.put_object.call_args.kwargs["Body"]
+
+
+def _uploaded_rows(df):
+    """Parse the CSV that df_to_s3 uploads."""
+    body = _uploaded_body(df)
     return list(csv.DictReader(StringIO(body, newline="")))
+
+
+def test_every_cell_is_quoted_and_formula_is_text():
+    """The uploaded body quotes all cells, e.g. buyer_name =1+1 -> "'=1+1"."""
+    df = pd.DataFrame({"buyer_name": ["=1+1"], "sale_price": [25000.0]})
+
+    body = _uploaded_body(df)
+
+    assert body == '"buyer_name","sale_price"\r\n"\'=1+1","25000.0"\r\n'
 
 
 @pytest.mark.parametrize("payload", [
