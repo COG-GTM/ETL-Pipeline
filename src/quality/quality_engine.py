@@ -316,14 +316,19 @@ class DataQualityEngine:
         for col in date_cols:
             try:
                 dates = pd.to_datetime(df[col], errors="coerce")
-                future_dates = (dates > pd.Timestamp.now()).sum()
-                if future_dates > 0:
-                    rule = QualityRule(f"no_future_dates_{col}", f"Check for future dates in '{col}'", "warning")
-                    rule.passed = False
-                    rule.details = {"column": col, "future_date_count": int(future_dates)}
-                    self.rules.append(rule)
-            except (ValueError, TypeError):
-                pass
+                now = pd.Timestamp.now(tz=getattr(dates.dt, "tz", None))
+                future_dates = (dates > now).sum()
+            except (ValueError, TypeError, AttributeError, OverflowError) as exc:
+                rule = QualityRule(f"timeliness_{col}", f"Check that dates in '{col}' can be evaluated", "warning")
+                rule.passed = False
+                rule.details = {"column": col, "error": type(exc).__name__}
+                self.rules.append(rule)
+                continue
+            if future_dates > 0:
+                rule = QualityRule(f"no_future_dates_{col}", f"Check for future dates in '{col}'", "warning")
+                rule.passed = False
+                rule.details = {"column": col, "future_date_count": int(future_dates)}
+                self.rules.append(rule)
 
     def _check_accuracy(self, df: pd.DataFrame) -> None:
         numeric_cols = df.select_dtypes(include=["float64", "int64"]).columns
