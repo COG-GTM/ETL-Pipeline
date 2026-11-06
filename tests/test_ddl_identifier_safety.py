@@ -84,6 +84,10 @@ def test_normalizes_type_spelling_and_default():
     ("BYTEA", "BYTEA"),
     ("serial", "SERIAL"),
     ("BIGSERIAL", "BIGSERIAL"),
+    ("smallserial", "SMALLSERIAL"),
+    ("varchar(10000)", "VARCHAR(10000)"),
+    ("VARCHAR(10485760)", "VARCHAR(10485760)"),
+    ("numeric(1000, 20)", "NUMERIC(1000, 20)"),
 ])
 def test_allows_arrays_intervals_and_time_zones(dtype, expected):
     """Array, interval and time-zone type forms are accepted and normalized."""
@@ -91,10 +95,11 @@ def test_allows_arrays_intervals_and_time_zones(dtype, expected):
 
 
 def test_custom_types_render_in_both_generators():
-    """TEXT[] and INTERVAL columns produce DDL in both generators."""
-    columns = [_column("txn_id", "INTEGER"), _column("events", "TEXT[]"), _column("duration", "INTERVAL")]
+    """TEXT[], INTERVAL and wide VARCHAR columns produce DDL in both generators."""
+    columns = [_column("txn_id", "INTEGER"), _column("events", "TEXT[]"), _column("duration", "INTERVAL"),
+               _column("note", "VARCHAR(10000)")]
     target = _designer("transactions", columns).generate_target_ddl()
-    assert "    events TEXT[],\n    duration INTERVAL,\n" in target
+    assert "    events TEXT[],\n    duration INTERVAL,\n    note VARCHAR(10000),\n" in target
     detected = SchemaDetector().generate_ddl({
         "detected_table_name": "transactions",
         "columns": columns,
@@ -102,11 +107,12 @@ def test_custom_types_render_in_both_generators():
         "indexes_recommended": [],
     })
     assert "    events TEXT[]" in detected and "    duration INTERVAL" in detected
+    assert "    note VARCHAR(10000)" in detected
 
 
 @pytest.mark.parametrize("dtype", [
     "VARCHAR(10); DROP TABLE z", "INTEGER DEFAULT pg_sleep(10)", "INTEGER REFERENCES t", "",
-    "TEXT[]; DROP TABLE z", "INTEGER[1:2]", "INTERVAL '1 day'", "INTEGER WITH TIME ZONE", "SERIAL[]", "bigserial [ ]", "TEXT[] COLLATE \"C\"",
+    "TEXT[]; DROP TABLE z", "INTEGER[1:2]", "INTERVAL '1 day'", "INTEGER WITH TIME ZONE", "SERIAL[]", "bigserial [ ]", "SMALLSERIAL[]", "VARCHAR(123456789)", "TEXT[] COLLATE \"C\"",
 ])
 def test_rejects_injected_types(dtype):
     """Anything beyond a simple allowlisted type is rejected."""

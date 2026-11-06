@@ -45,11 +45,12 @@ def _keywords(words):
     return "|".join(r"\s+".join(map(re.escape, w.split())) for w in words)
 
 
-# SERIAL/BIGSERIAL are pseudo-types without array forms.
+# SERIAL types are pseudo-types without array forms. Length/precision digits are
+# capped at VARCHAR's 10485760 width; PostgreSQL checks per-type ranges itself.
 _DATA_TYPE = re.compile(
-    r"(?:BIG)?SERIAL"
+    r"(?:SMALL|BIG)?SERIAL"
     r"|(?:(?:"
-    r"(?:" + _keywords(_ALLOWED_BASE_TYPES) + r")(?:\s*\(\s*\d{1,4}\s*(?:,\s*\d{1,4}\s*)?\))?"
+    r"(?:" + _keywords(_ALLOWED_BASE_TYPES) + r")(?:\s*\(\s*\d{1,8}\s*(?:,\s*\d{1,8}\s*)?\))?"
     r"|(?:TIMESTAMP|TIME)(?:\s*\(\s*\d\s*\))?(?:\s+WITH(?:OUT)?\s+TIME\s+ZONE)?"
     r"|INTERVAL(?:\s+(?:" + _keywords(_INTERVAL_FIELDS) + r"))?(?:\s*\(\s*\d\s*\))?"
     r")"
