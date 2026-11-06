@@ -15,6 +15,7 @@ def clean_env(monkeypatch):
 
 
 def _connect(host="db.example.com", **kwargs):
+    """Return the PostgreSQL connection options passed by the extractor."""
     with mock.patch.object(extract.psycopg2, "connect") as connect:
         extract.connect_to_postgres("etl", host, 5432, "u", "p", **kwargs)
     return connect.call_args.kwargs
