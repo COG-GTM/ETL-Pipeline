@@ -21,6 +21,20 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    outputs:
+      devin_eligible: ${{ steps.quality-gate.outcome == 'failure' && steps.check-devin.outputs.is_devin_commit == 'false' && steps.pr.outputs.devin_allowed == 'true' && steps.extract-issues.outputs.actionable == 'true' }}
+      pr_number: ${{ steps.pr.outputs.pr_number }}
+      pr_author: ${{ steps.pr.outputs.pr_author }}
+      head_ref: ${{ steps.pr.outputs.head_ref }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      base_sha: ${{ steps.pr.outputs.base_sha }}
+      total_issues: ${{ steps.extract-issues.outputs.total_issues }}
+      vulnerabilities: ${{ steps.extract-issues.outputs.vulnerabilities }}
+      bugs: ${{ steps.extract-issues.outputs.bugs }}
+      code_smells: ${{ steps.extract-issues.outputs.code_smells }}
+      security_hotspots: ${{ steps.extract-issues.outputs.security_hotspots }}
+      issue_refs: ${{ steps.extract-issues.outputs.issue_refs }}
+      failed_conditions: ${{ steps.extract-issues.outputs.failed_conditions }}
 
     steps:
       # Everything the PR author controls (branch name, file names, code, Sonar
@@ -148,6 +162,7 @@ jobs:
             echo "head_ref=$HEAD_REF"
             echo "head_sha=$HEAD_SHA"
             echo "base_sha=$BASE_SHA"
+            echo "pr_author=$PR_AUTHOR"
             echo "devin_allowed=$DEVIN_ALLOWED"
           } >> "$GITHUB_OUTPUT"
 
@@ -302,6 +317,68 @@ jobs:
           echo "  Code Smells: $CODE_SMELLS"
           echo "  Security Hotspots: $SECURITY_HOTSPOTS"
 
+      - name: Quality Gate Result
+        if: steps.quality-gate.outcome == 'failure'
+        env:
+          IS_DEVIN_COMMIT: ${{ steps.check-devin.outputs.is_devin_commit }}
+          DEVIN_ALLOWED: ${{ steps.pr.outputs.devin_allowed }}
+          ACTIONABLE: ${{ steps.extract-issues.outputs.actionable }}
+        run: |
+          if [[ "$IS_DEVIN_COMMIT" == "true" ]]; then
+            echo "Quality gate still failing after Devin remediation — human review required."
+          elif [[ "$DEVIN_ALLOWED" != "true" ]]; then
+            echo "Quality gate failed — Devin was not triggered because the PR author, actor, or pusher is not in DEVIN_TRUSTED_AUTHORS. Human review required."
+          elif [[ "$ACTIONABLE" != "true" ]]; then
+            echo "Quality gate failed — Devin was not triggered because SonarCloud reported no issues or hotspots to remediate. Human review required."
+          else
+            echo "Quality gate failed — Devin remediation is waiting for a maintainer to approve the devin-remediation environment deployment."
+          fi
+          exit 1
+
+  # Starting a Devin session is gated on a human: this job runs in the
+  # `devin-remediation` environment, which must have required reviewers and
+  # hold DEVIN_API_KEY as an environment secret (not a repository secret).
+  # The run pauses until a maintainer approves it, and the next step fails
+  # closed if no approval for this run is recorded.
+  devin-remediation:
+    name: Devin Remediation (requires approval)
+    needs: sonarqube-scan
+    if: ${{ !cancelled() && needs.sonarqube-scan.outputs.devin_eligible == 'true' }}
+    runs-on: ubuntu-latest
+    environment: devin-remediation
+    permissions:
+      actions: read
+      pull-requests: write
+
+    steps:
+      - name: Require maintainer approval
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          PR_AUTHOR: ${{ needs.sonarqube-scan.outputs.pr_author }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::Invalid run id"; exit 1; }
+          if ! APPROVALS=$(curl -sf \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL/repos/$REPO/actions/runs/$RUN_ID/approvals"); then
+            echo "::error::Could not read deployment approvals for this run"
+            exit 1
+          fi
+          # The PR author may not approve their own remediation session.
+          APPROVERS=$(jq -r --arg author "$PR_AUTHOR" '[.[]?
+            | select(.state == "approved" and any(.environments[]?; .name == "devin-remediation"))
+            | .user.login // empty | strings
+            | select(ascii_downcase != ($author | ascii_downcase))] | unique | join(",")' <<<"$APPROVALS")
+          if [[ -z "$APPROVERS" ]]; then
+            echo "::error::No maintainer (other than the PR author) approved the devin-remediation deployment for this run. Configure required reviewers on that environment to enable auto-remediation."
+            exit 1
+          fi
+          echo "Approved by: $APPROVERS"
+
       # The prompt contains no PR-derived text: only the PR number, commit SHAs,
       # Sonar rule/issue identifiers and counts. The branch is passed to the API
       # as a parameter, never as prompt text. Recommended: DEVIN_API_KEY should
@@ -309,30 +386,51 @@ jobs:
       # whose GitHub access is limited to this repository.
       - name: Trigger Devin Remediation
         id: trigger-devin
-        if: |
-          steps.quality-gate.outcome == 'failure' &&
-          steps.check-devin.outputs.is_devin_commit == 'false' &&
-          steps.pr.outputs.devin_allowed == 'true' &&
-          steps.extract-issues.outputs.actionable == 'true'
         env:
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          HEAD_REF: ${{ needs.sonarqube-scan.outputs.head_ref }}
+          HEAD_SHA: ${{ needs.sonarqube-scan.outputs.head_sha }}
+          BASE_SHA: ${{ needs.sonarqube-scan.outputs.base_sha }}
           REPO: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
           API_URL: ${{ github.api_url }}
-          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
-          INPUT_TOTAL_ISSUES: ${{ steps.extract-issues.outputs.total_issues }}
-          INPUT_VULNERABILITIES: ${{ steps.extract-issues.outputs.vulnerabilities }}
-          INPUT_BUGS: ${{ steps.extract-issues.outputs.bugs }}
-          INPUT_CODE_SMELLS: ${{ steps.extract-issues.outputs.code_smells }}
-          INPUT_SECURITY_HOTSPOTS: ${{ steps.extract-issues.outputs.security_hotspots }}
-          INPUT_ISSUE_REFS: ${{ steps.extract-issues.outputs.issue_refs }}
-          INPUT_FAILED_CONDITIONS: ${{ steps.extract-issues.outputs.failed_conditions }}
+          PR_NUMBER: ${{ needs.sonarqube-scan.outputs.pr_number }}
+          INPUT_TOTAL_ISSUES: ${{ needs.sonarqube-scan.outputs.total_issues }}
+          INPUT_VULNERABILITIES: ${{ needs.sonarqube-scan.outputs.vulnerabilities }}
+          INPUT_BUGS: ${{ needs.sonarqube-scan.outputs.bugs }}
+          INPUT_CODE_SMELLS: ${{ needs.sonarqube-scan.outputs.code_smells }}
+          INPUT_SECURITY_HOTSPOTS: ${{ needs.sonarqube-scan.outputs.security_hotspots }}
+          INPUT_ISSUE_REFS: ${{ needs.sonarqube-scan.outputs.issue_refs }}
+          INPUT_FAILED_CONDITIONS: ${{ needs.sonarqube-scan.outputs.failed_conditions }}
         run: |
           set -euo pipefail
+
+          # Re-validate everything handed over from the scan job (defense in depth).
+          if [[ -z "$DEVIN_API_KEY" ]]; then
+            echo "::error::DEVIN_API_KEY is not available. Store it as a secret of the devin-remediation environment."
+            exit 1
+          fi
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]] || { echo "::error::Invalid PR number"; exit 1; }
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid commit SHA"; exit 1; }
+          [[ "$HEAD_REF" =~ ^[A-Za-z0-9._/-]{1,255}$ && "$HEAD_REF" != -* && "$HEAD_REF" != *..* ]] || { echo "::error::Invalid branch name"; exit 1; }
+          for n in "$INPUT_TOTAL_ISSUES" "$INPUT_VULNERABILITIES" "$INPUT_BUGS" "$INPUT_CODE_SMELLS" "$INPUT_SECURITY_HOTSPOTS"; do
+            [[ "$n" =~ ^[0-9]{1,9}$ ]] || { echo "::error::Invalid issue count"; exit 1; }
+          done
+          jq -e 'type == "array"' <<<"$INPUT_ISSUE_REFS" >/dev/null && jq -e 'type == "array"' <<<"$INPUT_FAILED_CONDITIONS" >/dev/null \
+            || { echo "::error::Invalid SonarCloud issue data"; exit 1; }
+
+          # Approval can come long after the scan. Refuse if the PR moved since the
+          # scanned (and approved) commit, so a later push cannot ride the approval.
+          CURRENT_SHA=$(curl -sf \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL/repos/$REPO/pulls/$PR_NUMBER" | jq -r '.head.sha // ""')
+          if [[ "$CURRENT_SHA" != "$HEAD_SHA" ]]; then
+            echo "::error::PR #$PR_NUMBER head moved after the scan; re-run the workflow for the new commit"
+            exit 1
+          fi
+
           echo "Triggering Devin AI for vulnerability remediation..."
 
           SONAR_PROJECT="COG-GTM_ETL-Pipeline"
@@ -406,7 +504,7 @@ jobs:
           COMMENT_BODY=$(cat <<EOF
           ## Devin AI — Automated Vulnerability Remediation
 
-          SonarCloud Quality Gate **failed** on this PR. A Devin session has been created to automatically remediate the detected issues.
+          SonarCloud Quality Gate **failed** on this PR. A maintainer approved the remediation run, and a Devin session has been created to remediate the detected issues.
 
           | Category | Count |
           |----------|-------|
@@ -427,24 +525,3 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "$API_URL/repos/$REPO/issues/$PR_NUMBER/comments" \
             -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')"
-
-      - name: Quality Gate Result
-        if: steps.quality-gate.outcome == 'failure'
-        env:
-          IS_DEVIN_COMMIT: ${{ steps.check-devin.outputs.is_devin_commit }}
-          DEVIN_ALLOWED: ${{ steps.pr.outputs.devin_allowed }}
-          ACTIONABLE: ${{ steps.extract-issues.outputs.actionable }}
-          TRIGGER_OUTCOME: ${{ steps.trigger-devin.outcome }}
-        run: |
-          if [[ "$IS_DEVIN_COMMIT" == "true" ]]; then
-            echo "Quality gate still failing after Devin remediation — human review required."
-          elif [[ "$DEVIN_ALLOWED" != "true" ]]; then
-            echo "Quality gate failed — Devin was not triggered because the PR author, actor, or pusher is not in DEVIN_TRUSTED_AUTHORS. Human review required."
-          elif [[ "$ACTIONABLE" != "true" ]]; then
-            echo "Quality gate failed — Devin was not triggered because SonarCloud reported no issues or hotspots to remediate. Human review required."
-          elif [[ "$TRIGGER_OUTCOME" == "success" ]]; then
-            echo "Quality gate failed — Devin has been triggered for auto-remediation."
-          else
-            echo "Quality gate failed — Devin was not triggered. Human review required."
-          fi
-          exit 1
