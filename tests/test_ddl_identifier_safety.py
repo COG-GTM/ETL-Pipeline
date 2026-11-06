@@ -69,6 +69,8 @@ def test_allows_generated_types(dtype):
 def test_normalizes_type_spelling_and_default():
     """Type case/spacing is normalized and None falls back to the default."""
     assert safe_data_type("numeric( 10 ,2 )") == "NUMERIC(10, 2)"
+    assert safe_data_type("NUMERIC(3, 5)") == "NUMERIC(3, 5)"
+    assert safe_data_type("DECIMAL(1000, 1000)") == "DECIMAL(1000, 1000)"
     assert safe_data_type(None) == "VARCHAR(255)"
 
 
@@ -119,7 +121,7 @@ def test_wide_varchar_columns_render_in_both_generators():
 
 
 @pytest.mark.parametrize("dtype", [
-    "VARCHAR(10); DROP TABLE z", "VARCHAR(123456789)", "VARCHAR(10485761)", "VARCHAR(0)", "NUMERIC(10000)", "NUMERIC(5, 6)", "VARCHAR(10, 2)", "INTEGER DEFAULT pg_sleep(10)", "INTEGER REFERENCES t", "",
+    "VARCHAR(10); DROP TABLE z", "VARCHAR(123456789)", "VARCHAR(10485761)", "VARCHAR(0)", "NUMERIC(10000)", "NUMERIC(5, 1001)", "VARCHAR(10, 2)", "INTEGER DEFAULT pg_sleep(10)", "INTEGER REFERENCES t", "",
     "TEXT[]; DROP TABLE z", "INTEGER[1:2]", "INTERVAL '1 day'", "INTEGER WITH TIME ZONE", "SERIAL[]", "bigserial [ ]", "TEXT[] COLLATE \"C\"",
 ])
 def test_rejects_injected_types(dtype):
