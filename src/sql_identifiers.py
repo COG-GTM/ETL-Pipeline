@@ -66,6 +66,27 @@ def _normalize_type(data_type: str) -> str:
     return re.sub(r"\s*,\s*", ", ", text)
 
 
+_TYPE_LIMITS = {
+    "VARCHAR": 10485760, "CHARACTER VARYING": 10485760, "CHARACTER": 10485760, "CHAR": 10485760,
+    "DECIMAL": 1000, "NUMERIC": 1000,
+}
+_TYPE_PARAMS = re.compile(r"([A-Z ]+?)\((\d+)(?:, (\d+))?\)")
+
+
+def _within_postgres_limits(normalized: str) -> bool:
+    """Check length/precision/scale of a normalized type against PostgreSQL's limits."""
+    match = _TYPE_PARAMS.match(normalized)
+    if not match:
+        return True
+    base, first, second = match.group(1), int(match.group(2)), match.group(3)
+    limit = _TYPE_LIMITS.get(base)
+    if limit is not None and not 1 <= first <= limit:
+        return False
+    if second is not None:
+        return base in ("DECIMAL", "NUMERIC") and int(second) <= first
+    return True
+
+
 class UnsafeDDLValueError(ValueError):
     """Raised when a value cannot be rendered safely into generated DDL."""
 
@@ -95,7 +116,9 @@ def safe_data_type(data_type: str | None, default: str = "VARCHAR(255)") -> str:
         data_type = default
     if isinstance(data_type, str):
         if _DATA_TYPE.fullmatch(data_type.strip()):
-            return _normalize_type(data_type)
+            normalized = _normalize_type(data_type)
+            if _within_postgres_limits(normalized):
+                return normalized
     raise UnsafeDDLValueError(f"Unsupported SQL data type: {data_type!r}")
 
 
