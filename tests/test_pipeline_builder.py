@@ -176,12 +176,18 @@ def test_colliding_step_names_get_distinct_methods():
     ])
 
 
-def test_step_name_cannot_replace_init():
-    """A step named ``_init__`` does not override ``__init__``."""
-    builder, _ = _generate([{"source": "a.csv", "format": "csv"}])
-    builder.steps[0].name = "_init__"
-    code = builder.generate_pipeline_code()
-    assert _run_with_stub_pandas(code) == [("csv", "a.csv")]
+def test_step_names_cannot_define_special_methods():
+    """Step names never become dunder methods, even via NFKC folding."""
+    names = [
+        "_init__",
+        "_getattribute__",
+        "_\uff47\uff45\uff54\uff41\uff54\uff54\uff52\uff49\uff42\uff55\uff54\uff45__",
+    ]
+    for name in names:
+        builder, _ = _generate([{"source": "a.csv", "format": "csv"}])
+        builder.steps[0].name = name
+        code = builder.generate_pipeline_code()
+        assert _run_with_stub_pandas(code) == [("csv", "a.csv")], name
 
 if __name__ == "__main__":
     tests = [
