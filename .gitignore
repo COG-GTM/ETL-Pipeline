@@ -7,3 +7,5 @@ __pycache__/
 .idea/
 
 
+demo/domain_knowledge/
+.venv/
