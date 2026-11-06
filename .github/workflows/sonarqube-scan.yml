@@ -132,7 +132,7 @@ jobs:
                 'first((if type == "array" then .[] else empty end)
                   | objects
                   | select(.after == $sha and (.activity_type == "push" or .activity_type == "force_push" or .activity_type == "branch_creation"))
-                  | .actor.login // empty | strings) // ""' \
+                  | ((.actor.login // empty | strings) + " " + .activity_type)) // ""' \
                 <<<"$body" 2>/dev/null || true)
               if [[ -n "$login" ]]; then
                 printf '%s\n' "$login"
@@ -145,10 +145,30 @@ jobs:
             rm -f "$headers"
           }
 
+          # A branch creation only proves who created the ref, not who wrote the commit
+          # it points at (anyone can create a branch at an existing SHA, e.g. a fork
+          # PR's head). In that case every commit in the PR must be attributed by
+          # GitHub to a trusted account (committer may be web-flow for UI commits).
+          # More than 250 commits cannot be listed by the compare API: fail closed.
+          pr_commits_trusted() {
+            local cmp logins login
+            cmp=$(curl -sf \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "$API_URL/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA?per_page=250") || return 1
+            jq -e '(.total_commits | type) == "number" and .total_commits >= 1 and .total_commits <= 250 and (.commits | length) == .total_commits' \
+              <<<"$cmp" >/dev/null 2>&1 || return 1
+            logins=$(jq -r '.commits[] | (.author.login // "-"), (if .committer.login == "web-flow" then (.author.login // "-") else (.committer.login // "-") end)' <<<"$cmp") || return 1
+            while IFS= read -r login; do
+              [[ "$login" != "-" ]] && is_trusted "$login" || return 1
+            done <<<"$logins"
+          }
+
           DEVIN_ALLOWED=false
           if [[ -n "$PR_AUTHOR" ]] && is_trusted "$PR_AUTHOR" && is_trusted "$ACTOR"; then
-            PUSHER=$(head_pusher)
-            if [[ -n "$PUSHER" ]] && is_trusted "$PUSHER"; then
+            read -r PUSHER PUSH_TYPE <<<"$(head_pusher)" || true
+            if [[ -n "${PUSHER:-}" ]] && is_trusted "$PUSHER" \
+              && { [[ "${PUSH_TYPE:-}" != "branch_creation" ]] || pr_commits_trusted; }; then
               DEVIN_ALLOWED=true
             else
               echo "::notice::Devin auto-remediation disabled for this run: the account that pushed commit $HEAD_SHA could not be confirmed as a member of DEVIN_TRUSTED_AUTHORS"
@@ -430,12 +450,20 @@ jobs:
 
           # Approval can come long after the scan. Refuse if the PR moved since the
           # scanned (and approved) commit, so a later push cannot ride the approval.
-          CURRENT_SHA=$(curl -sf \
+          # Closing or retargeting the PR does not change the head SHA, so also
+          # require it to still be open, from the same branch, on the scanned base.
+          CURRENT_PR=$(curl -sf \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "$API_URL/repos/$REPO/pulls/$PR_NUMBER" | jq -r '.head.sha // ""')
-          if [[ "$CURRENT_SHA" != "$HEAD_SHA" ]]; then
+            "$API_URL/repos/$REPO/pulls/$PR_NUMBER") || CURRENT_PR='{}'
+          if [[ "$(jq -r '.head.sha // ""' <<<"$CURRENT_PR")" != "$HEAD_SHA" ]]; then
             echo "::error::PR #$PR_NUMBER head moved after the scan; re-run the workflow for the new commit"
+            exit 1
+          fi
+          if ! jq -e --arg repo "$REPO" --arg ref "$HEAD_REF" --arg base "$BASE_SHA" \
+            '.state == "open" and .head.repo.full_name == $repo and .head.ref == $ref and .base.sha == $base' \
+            <<<"$CURRENT_PR" >/dev/null; then
+            echo "::error::PR #$PR_NUMBER was closed, retargeted or its base changed after the scan; re-run the workflow"
             exit 1
           fi
 
