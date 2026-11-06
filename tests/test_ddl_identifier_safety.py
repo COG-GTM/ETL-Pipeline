@@ -91,6 +91,25 @@ def test_malicious_header_is_a_single_quoted_column():
     assert ddl.count("CREATE TABLE") == 1
 
 
+def test_one_statement_per_table_with_injected_names():
+    """Injected header/file names leave exactly one CREATE TABLE statement per table."""
+    import re
+    designer = TargetModelDesigner()
+    designer.add_source_schema({"detected_table_name": "transactions", "columns": [_column("txn_id"), _column(MALICIOUS_COLUMN)]})
+    designer.add_source_schema({
+        "detected_table_name": "products); DROP TABLE x; --",
+        "columns": [_column("sku VARCHAR(10)); DROP TABLE dim_products; --")],
+    })
+    designer.design_star_schema()
+    ddl = designer.generate_target_ddl()
+    sql = "\n".join(line for line in ddl.splitlines() if not line.startswith("--"))
+    outside_quotes = re.sub(r'"(?:[^"]|"")*"', '""', sql)
+    assert outside_quotes.count(";") == outside_quotes.count("CREATE TABLE") == 2
+    assert "DROP" not in outside_quotes
+    assert 'CREATE TABLE "dim_products); DROP TABLE x; --" (' in ddl
+    assert '    "sku VARCHAR(10)); DROP TABLE dim_products; --" VARCHAR(255),' in ddl
+
+
 def test_malicious_file_name_is_quoted_in_table_and_surrogate_key():
     """A malicious file name is quoted in the table name and its surrogate key."""
     ddl = _designer('transactions"); DROP TABLE users; --', [_column("txn_id")]).generate_target_ddl()
