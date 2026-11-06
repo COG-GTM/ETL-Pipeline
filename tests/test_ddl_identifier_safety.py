@@ -72,7 +72,40 @@ def test_normalizes_type_spelling_and_default():
     assert safe_data_type(None) == "VARCHAR(255)"
 
 
-@pytest.mark.parametrize("dtype", ["VARCHAR(10); DROP TABLE z", "INTEGER DEFAULT pg_sleep(10)", "INTEGER REFERENCES t", ""])
+@pytest.mark.parametrize("dtype, expected", [
+    ("TEXT[]", "TEXT[]"),
+    ("integer [ 3 ][]", "INTEGER[3][]"),
+    ("VARCHAR(20)[]", "VARCHAR(20)[]"),
+    ("INTERVAL", "INTERVAL"),
+    ("interval day to second (3)", "INTERVAL DAY TO SECOND(3)"),
+    ("timestamp(3) with time zone", "TIMESTAMP(3) WITH TIME ZONE"),
+    ("TIME WITHOUT TIME ZONE", "TIME WITHOUT TIME ZONE"),
+    ("double  precision[]", "DOUBLE PRECISION[]"),
+    ("BYTEA", "BYTEA"),
+])
+def test_allows_arrays_intervals_and_time_zones(dtype, expected):
+    """Array, interval and time-zone type forms are accepted and normalized."""
+    assert safe_data_type(dtype) == expected
+
+
+def test_custom_types_render_in_both_generators():
+    """TEXT[] and INTERVAL columns produce DDL in both generators."""
+    columns = [_column("txn_id", "INTEGER"), _column("events", "TEXT[]"), _column("duration", "INTERVAL")]
+    target = _designer("transactions", columns).generate_target_ddl()
+    assert "    events TEXT[],\n    duration INTERVAL,\n" in target
+    detected = SchemaDetector().generate_ddl({
+        "detected_table_name": "transactions",
+        "columns": columns,
+        "primary_key_candidates": [],
+        "indexes_recommended": [],
+    })
+    assert "    events TEXT[]" in detected and "    duration INTERVAL" in detected
+
+
+@pytest.mark.parametrize("dtype", [
+    "VARCHAR(10); DROP TABLE z", "INTEGER DEFAULT pg_sleep(10)", "INTEGER REFERENCES t", "",
+    "TEXT[]; DROP TABLE z", "INTEGER[1:2]", "INTERVAL '1 day'", "INTEGER WITH TIME ZONE", "TEXT[] COLLATE \"C\"",
+])
 def test_rejects_injected_types(dtype):
     """Anything beyond a simple allowlisted type is rejected."""
     with pytest.raises(UnsafeDDLValueError):
