@@ -7,7 +7,7 @@ This demo showcases an automated security remediation pipeline:
 1. A developer opens a PR with code that contains a **security vulnerability**
 2. **SonarCloud** scans the PR and detects the vulnerability
 3. The Quality Gate **fails**, triggering a GitHub Action
-4. The workflow automatically creates a **Devin AI session** to remediate the issue
+4. The workflow requests approval of the `devin-remediation` environment; once a maintainer approves, it creates a **Devin AI session** to remediate the issue
 5. Devin fixes the vulnerability on a new `devin/sonar-fix-pr-<N>-<sha>` branch, opens a separate PR targeting the PR branch for human review, and posts a comment
 6. The workflow re-runs, SonarCloud re-scans, and the Quality Gate **passes**
 
@@ -20,7 +20,15 @@ This demo showcases an automated security remediation pipeline:
 | Secret | Description |
 |--------|-------------|
 | `SONAR_TOKEN` | SonarCloud token for the `cog-gtm` organization |
-| `DEVIN_API_KEY` | Devin API key for creating remediation sessions. Use a dedicated service user whose Devin organization has **no secrets** and whose GitHub access is limited to this repository. |
+
+### GitHub Environment `devin-remediation` (Settings > Environments)
+
+| Setting | Value |
+|---------|-------|
+| Required reviewers | The maintainers allowed to start a Devin session. Enable **Prevent self-review**. |
+| Environment secret `DEVIN_API_KEY` | Devin API key for creating remediation sessions. Store it **only** here and delete any repository-level `DEVIN_API_KEY`: a `pull_request` run uses the PR's own copy of the workflow, so only an environment secret stays out of reach of a PR that edits the workflow. Use a dedicated service user whose Devin organization has **no secrets** and whose GitHub access is limited to this repository. |
+
+The `devin-remediation` job pauses until a reviewer approves it, and fails closed if this run has no approval from someone other than the PR author, if the PR moved past the scanned commit, or if `DEVIN_API_KEY` is not an environment secret.
 
 ### GitHub Variables (Settings > Secrets and variables > Actions > Variables)
 
@@ -32,6 +40,7 @@ This demo showcases an automated security remediation pipeline:
 
 The remediation session runs with Devin's credentials, so the workflow treats all PR content as untrusted:
 
+- No session starts without a maintainer approving the `devin-remediation` environment deployment for that run.
 - Only same-repository PRs from allowlisted authors can start a session; fork PRs and `workflow_dispatch` inputs that do not match the PR's real head branch fail the job.
 - The prompt contains no PR-derived text (no branch name, file names, or SonarCloud messages) — only the PR number, the scanned commit SHA, and SonarCloud rule / issue keys. Devin looks the issues up itself.
 - Devin never pushes to the PR author's branch: fixes arrive as a separate PR for human review, and the fix branch name is built only from the PR number and scanned SHA.
