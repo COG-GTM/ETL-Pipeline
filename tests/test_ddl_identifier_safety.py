@@ -104,8 +104,22 @@ def test_custom_types_render_in_both_generators():
     assert "    events TEXT[]" in detected and "    duration INTERVAL" in detected
 
 
+def test_wide_varchar_columns_render_in_both_generators():
+    """Caller-supplied VARCHAR lengths above 9999 stay valid in both generators."""
+    columns = [_column("notes", "VARCHAR(10000)"), _column("blob", "varchar(10485760)")]
+    target = _designer("transactions", columns).generate_target_ddl()
+    assert "    notes VARCHAR(10000),\n    blob VARCHAR(10485760),\n" in target
+    detected = SchemaDetector().generate_ddl({
+        "detected_table_name": "transactions",
+        "columns": columns,
+        "primary_key_candidates": [],
+        "indexes_recommended": [],
+    })
+    assert "    notes VARCHAR(10000)" in detected and "    blob VARCHAR(10485760)" in detected
+
+
 @pytest.mark.parametrize("dtype", [
-    "VARCHAR(10); DROP TABLE z", "INTEGER DEFAULT pg_sleep(10)", "INTEGER REFERENCES t", "",
+    "VARCHAR(10); DROP TABLE z", "VARCHAR(123456789)", "INTEGER DEFAULT pg_sleep(10)", "INTEGER REFERENCES t", "",
     "TEXT[]; DROP TABLE z", "INTEGER[1:2]", "INTERVAL '1 day'", "INTEGER WITH TIME ZONE", "SERIAL[]", "bigserial [ ]", "TEXT[] COLLATE \"C\"",
 ])
 def test_rejects_injected_types(dtype):
