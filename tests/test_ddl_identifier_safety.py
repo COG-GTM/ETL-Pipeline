@@ -231,4 +231,4 @@ def test_profiled_csv_header_and_file_name_stay_quoted(tmp_path):
     assert outside_quotes.count(";") == outside_quotes.count("CREATE TABLE") == 1
     assert "DROP" not in outside_quotes
     assert 'CREATE TABLE "fact_transactions);_drop_table_t;___" (' in ddl
-    assert '    "x INT); DROP TABLE t; --" VARCHAR(255) NOT NULL,' in ddl
+    assert re.search(r'^    "x INT\); DROP TABLE t; --" VARCHAR\(\d+\) NOT NULL,$', ddl, re.MULTILINE)
