@@ -8,6 +8,7 @@ DEFAULT_SSLMODE = "verify-full"
 REMOTE_SSLMODES = ("verify-full",)
 LOCAL_ONLY_SSLMODES = ("disable", "allow", "prefer", "require", "verify-ca")
 LOOPBACK_HOSTNAMES = ("localhost",)
+DEFAULT_CONNECT_TIMEOUT = 10
 
 
 def _all_loopback(value, allow_names):
@@ -73,8 +74,27 @@ def resolve_ssl_options(host, sslmode=None, sslrootcert=None):
     return options
 
 
+def resolve_connect_timeout(connect_timeout=None):
+    """
+    Return the libpq ``connect_timeout`` in seconds.
+
+    Defaults to ``DB_CONNECT_TIMEOUT`` and then ``DEFAULT_CONNECT_TIMEOUT``.
+    Zero or negative values would make libpq wait forever, so they are rejected.
+    """
+    raw = connect_timeout
+    if raw is None:
+        raw = os.getenv("DB_CONNECT_TIMEOUT") or DEFAULT_CONNECT_TIMEOUT
+    try:
+        timeout = int(str(raw).strip())
+    except ValueError:
+        raise ValueError(f"Invalid DB_CONNECT_TIMEOUT: {raw!r}") from None
+    if timeout <= 0:
+        raise ValueError(f"DB_CONNECT_TIMEOUT must be positive, got {raw!r}")
+    return timeout
+
+
 def connect_to_postgres(dbname, host, port, user, password,
-                        sslmode=None, sslrootcert=None):
+                        sslmode=None, sslrootcert=None, connect_timeout=None):
     """Connects to a local or remote PostgreSQL database over TLS"""
     conn = psycopg2.connect(
         dbname=dbname,
@@ -82,6 +102,7 @@ def connect_to_postgres(dbname, host, port, user, password,
         port=port,
         user=user,
         password=password,
+        connect_timeout=resolve_connect_timeout(connect_timeout),
         **resolve_ssl_options(host, sslmode, sslrootcert)
     )
     print("✅ Connected to PostgreSQL")

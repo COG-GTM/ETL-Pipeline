@@ -9,8 +9,8 @@ from src import extract
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     """Isolate tests from DB_SSL* / PG* connection settings in the env."""
-    for name in ("DB_SSLMODE", "DB_SSLROOTCERT", "PGHOST", "PGHOSTADDR",
-                 "PGSERVICE"):
+    for name in ("DB_SSLMODE", "DB_SSLROOTCERT", "DB_CONNECT_TIMEOUT",
+                 "PGHOST", "PGHOSTADDR", "PGSERVICE"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -114,3 +114,25 @@ def test_unknown_mode_rejected():
     """Typos fail closed instead of falling back to libpq defaults."""
     with pytest.raises(ValueError):
         _connect(sslmode="verify_full")
+
+
+def test_connect_timeout_defaults_to_ten_seconds():
+    """libpq would otherwise wait indefinitely for an unreachable host."""
+    assert _connect()["connect_timeout"] == 10
+
+
+def test_connect_timeout_from_env_and_argument(monkeypatch):
+    """DB_CONNECT_TIMEOUT is used unless an argument overrides it."""
+    monkeypatch.setenv("DB_CONNECT_TIMEOUT", " 30 ")
+    assert _connect()["connect_timeout"] == 30
+    assert _connect(connect_timeout=5)["connect_timeout"] == 5
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "abc", "1.5"])
+def test_invalid_connect_timeout_is_rejected(monkeypatch, value):
+    """Non-positive or non-integer timeouts fail before connecting."""
+    monkeypatch.setenv("DB_CONNECT_TIMEOUT", value)
+    with mock.patch.object(extract.psycopg2, "connect") as connect:
+        with pytest.raises(ValueError):
+            extract.connect_to_postgres("etl", "db.example.com", 5432, "u", "p")
+    connect.assert_not_called()
