@@ -116,13 +116,22 @@ class DataQualityEngine:
     ) -> Optional[tuple[str, ...]]:
         """Materialize ``primary_keys`` as an ordered tuple of names.
 
-        A single string is one column name; ``None`` means infer.
+        A single string is one column name; ``None`` means infer. An
+        explicit empty key raises ``ValueError`` instead of silently
+        disabling the primary key check.
         """
         if primary_keys is None:
             return None
         if isinstance(primary_keys, str):
-            return (primary_keys,)
-        return tuple(dict.fromkeys(str(c) for c in primary_keys))
+            keys: tuple[str, ...] = (primary_keys,) if primary_keys else ()
+        else:
+            keys = tuple(dict.fromkeys(str(c) for c in primary_keys))
+        if not keys:
+            raise ValueError(
+                "primary_keys must name at least one column; "
+                "pass None to infer the primary key"
+            )
+        return keys
 
     @classmethod
     def _infer_primary_keys(
@@ -207,7 +216,7 @@ class DataQualityEngine:
             self._check_primary_key(df, pk_cols)
 
         for col in df.columns:
-            if not self._is_key_column(col) or (str(col),) == pk_cols:
+            if not self._is_key_column(col) or str(col) in pk_cols:
                 continue
             non_null = df[col].dropna()
             dup_ids = int(non_null.duplicated().sum())
