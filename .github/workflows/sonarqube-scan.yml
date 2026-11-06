@@ -214,10 +214,18 @@ jobs:
         env:
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
-          COMMIT_AUTHOR=$(git log -1 --format='%an' "$HEAD_SHA")
-          COMMIT_MSG=$(git log -1 --format='%s' "$HEAD_SHA")
+          # A merge commit of Devin's fix PR has a GitHub merge subject, so also
+          # check the commits it merged in (parents 2..n).
+          is_devin() {
+            [[ "$(git log -1 --format='%an' "$1")" == "Devin AI" ]] || [[ "$(git log -1 --format='%s' "$1")" == *"[devin-fix]"* ]]
+          }
+          DEVIN=false
+          is_devin "$HEAD_SHA" && DEVIN=true
+          for parent in $(git rev-list --no-walk --parents "$HEAD_SHA" | cut -d' ' -f3-); do
+            is_devin "$parent" && DEVIN=true
+          done
 
-          if [[ "$COMMIT_AUTHOR" == "Devin AI" ]] || [[ "$COMMIT_MSG" == *"[devin-fix]"* ]]; then
+          if [[ "$DEVIN" == true ]]; then
             echo "is_devin_commit=true" >> "$GITHUB_OUTPUT"
             echo "Detected Devin remediation commit - skipping new session trigger"
           else
