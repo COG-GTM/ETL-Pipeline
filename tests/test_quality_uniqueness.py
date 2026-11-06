@@ -1,6 +1,7 @@
 """Tests for primary key uniqueness checks in DataQualityEngine."""
 
 import pandas as pd
+import pytest
 
 from demo.playbooks.quality_gate import QualityGatePlaybook
 from src.quality import DataQualityEngine
@@ -187,6 +188,35 @@ def test_string_primary_key_is_one_column():
     gate = QualityGatePlaybook(min_score=0, primary_keys="order_id")
     assert gate.primary_keys == ("order_id",)
     assert gate.execute(df, "orders")["critical_failures"] == 1
+
+
+def test_empty_primary_keys_are_rejected():
+    """An explicit empty key list cannot disable the primary key check."""
+    df = pd.DataFrame({"id": [1, 1], "v": ["a", "b"]})
+    for empty in ([], (), "", (c for c in [])):
+        with pytest.raises(ValueError):
+            QualityGatePlaybook(min_score=50, primary_keys=empty)
+    with pytest.raises(ValueError):
+        DataQualityEngine().run_all_checks(df, "ids", primary_keys=[])
+
+
+def test_composite_components_do_not_add_foreign_key_passes():
+    """Composite key columns get no extra passing foreign key rules."""
+    df = pd.DataFrame(
+        {"order_id": [1, 1, 1], "line_id": [1, 1, 2], "sku": ["a", "b", "c"]}
+    )
+    report = DataQualityEngine().run_all_checks(
+        df, "lines", primary_keys=["order_id", "line_id"]
+    )
+    names = [r["rule"] for r in report["rules"]]
+    assert "uniqueness_order_id" not in names
+    assert "uniqueness_line_id" not in names
+    gate = QualityGatePlaybook(
+        min_score=60,
+        block_on_critical=False,
+        primary_keys=["order_id", "line_id"],
+    )
+    assert gate.execute(df, "lines")["gate_passed"] is False
 
 
 if __name__ == "__main__":
