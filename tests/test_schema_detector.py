@@ -7,6 +7,7 @@ class TestSchemaDetector:
     """Tests for the SchemaDetector class."""
 
     def setup_method(self):
+        """Create a fresh SchemaDetector for each test."""
         self.detector = SchemaDetector()
 
     def _make_profile(self, columns: dict, source: str = "test_data.csv"):

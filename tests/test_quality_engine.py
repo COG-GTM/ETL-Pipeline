@@ -8,6 +8,7 @@ class TestQualityRule:
     """Tests for the QualityRule class."""
 
     def test_default_values(self):
+        """A new rule defaults to warning severity, not passed, no details."""
         rule = QualityRule("test_rule", "A test rule")
         assert rule.name == "test_rule"
         assert rule.description == "A test rule"
@@ -16,10 +17,12 @@ class TestQualityRule:
         assert rule.details == {}
 
     def test_custom_severity(self):
+        """A severity passed to the constructor is kept."""
         rule = QualityRule("test", "desc", severity="critical")
         assert rule.severity == "critical"
 
     def test_to_dict(self):
+        """to_dict exposes every rule field."""
         rule = QualityRule("name", "desc", "error")
         rule.passed = True
         rule.details = {"column": "col1"}
@@ -35,6 +38,7 @@ class TestDataQualityEngine:
     """Tests for the DataQualityEngine class."""
 
     def setup_method(self):
+        """Create a fresh DataQualityEngine for each test."""
         self.engine = DataQualityEngine()
 
     def _make_clean_df(self):

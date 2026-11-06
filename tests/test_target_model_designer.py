@@ -7,15 +7,18 @@ class TestTargetModelDesigner:
     """Tests for the TargetModelDesigner class."""
 
     def setup_method(self):
+        """Create a fresh TargetModelDesigner for each test."""
         self.designer = TargetModelDesigner()
 
     def _make_schema(self, table_name, columns):
+        """Build a minimal detected schema for one table."""
         return {
             "detected_table_name": table_name,
             "columns": columns,
         }
 
     def _make_column(self, name, target_dtype="VARCHAR(255)", nullable=True, is_unique=False):
+        """Build a minimal detected column definition."""
         return {
             "name": name,
             "target_dtype": target_dtype,

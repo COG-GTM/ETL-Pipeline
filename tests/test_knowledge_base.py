@@ -1,6 +1,5 @@
 import json
 import os
-import tempfile
 
 import pytest
 
@@ -10,11 +9,14 @@ from src.domain_learner.knowledge_base import DomainKnowledgeBase
 class TestDomainKnowledgeBase:
     """Tests for the DomainKnowledgeBase class."""
 
-    def setup_method(self):
-        self.tmpdir = tempfile.mkdtemp()
+    @pytest.fixture(autouse=True)
+    def _kb(self, tmp_path):
+        """Create a knowledge base backed by pytest's per-test temporary directory."""
+        self.tmpdir = str(tmp_path)
         self.kb = DomainKnowledgeBase(storage_dir=self.tmpdir)
 
     def _make_profile(self, source, columns, row_count=100):
+        """Build a minimal source profile for the knowledge base."""
         return {
             "source": source,
             "row_count": row_count,

@@ -7,6 +7,7 @@ class TestPipelineStep:
     """Tests for the PipelineStep class."""
 
     def test_init(self):
+        """A new step stores its config and starts pending with no output."""
         step = PipelineStep("extract_data", "extract", {"source": "file.csv"})
         assert step.name == "extract_data"
         assert step.step_type == "extract"
@@ -16,6 +17,7 @@ class TestPipelineStep:
         assert step.error is None
 
     def test_to_dict(self):
+        """to_dict exposes the step fields with zero duration."""
         step = PipelineStep("test_step", "transform", {"ops": []})
         d = step.to_dict()
         assert d["name"] == "test_step"
@@ -29,9 +31,11 @@ class TestPipelineBuilder:
     """Tests for the PipelineBuilder class."""
 
     def setup_method(self):
+        """Create a fresh PipelineBuilder for each test."""
         self.builder = PipelineBuilder()
 
     def _make_profile(self, source, row_count=100, fmt="csv", columns=None):
+        """Build a minimal source profile."""
         return {
             "source": source,
             "row_count": row_count,
@@ -40,6 +44,7 @@ class TestPipelineBuilder:
         }
 
     def _make_quality_report(self, source, score=85, grade="B", recommendations=None):
+        """Build a minimal quality report."""
         return {
             "source": source,
             "overall_score": score,
@@ -48,6 +53,7 @@ class TestPipelineBuilder:
         }
 
     def _make_target_model(self):
+        """Build a minimal star-schema target model."""
         return {
             "schema_type": "star_schema",
             "fact_table": {"name": "fact_sales"},

@@ -12,13 +12,16 @@ class TestDataConsolidator:
     """Tests for the DataConsolidator class."""
 
     def setup_method(self):
+        """Create a fresh DataConsolidator for each test."""
         self.consolidator = DataConsolidator()
 
     def _write_csv(self, data: dict, path: str) -> str:
+        """Write a dict of columns to a CSV file and return its path."""
         pd.DataFrame(data).to_csv(path, index=False)
         return path
 
     def _write_json(self, data, path: str) -> str:
+        """Write data as JSON to a file and return its path."""
         with open(path, "w") as f:
             json.dump(data, f)
         return path

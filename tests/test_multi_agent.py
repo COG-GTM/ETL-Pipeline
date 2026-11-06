@@ -7,6 +7,7 @@ class TestAgentPersona:
     """Tests for the AgentPersona class."""
 
     def test_init(self):
+        """A new agent stores its fields and starts idle with no actions."""
         agent = AgentPersona("Test Agent", "tester", ["test things"])
         assert agent.name == "Test Agent"
         assert agent.role == "tester"
@@ -15,6 +16,7 @@ class TestAgentPersona:
         assert agent.actions_taken == []
 
     def test_record_action(self):
+        """record_action appends the action with details and a timestamp."""
         agent = AgentPersona("Agent", "role", [])
         agent.record_action("analyze", {"source_count": 3})
 
@@ -24,6 +26,7 @@ class TestAgentPersona:
         assert "timestamp" in agent.actions_taken[0]
 
     def test_to_dict(self):
+        """to_dict exposes the agent fields and the action count."""
         agent = AgentPersona("Agent", "role", ["r1", "r2"])
         agent.status = "active"
         agent.record_action("test", {})
@@ -36,6 +39,7 @@ class TestAgentPersona:
         assert d["total_actions"] == 1
 
     def test_multiple_actions(self):
+        """Every recorded action is counted."""
         agent = AgentPersona("Agent", "role", [])
         agent.record_action("step1", {"a": 1})
         agent.record_action("step2", {"b": 2})
@@ -49,6 +53,7 @@ class TestMultiAgentOrchestrator:
     """Tests for the MultiAgentOrchestrator class."""
 
     def setup_method(self):
+        """Create a fresh MultiAgentOrchestrator for each test."""
         self.orchestrator = MultiAgentOrchestrator()
 
     def test_init_default_agents(self):

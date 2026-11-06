@@ -12,20 +12,24 @@ class TestSourceProfiler:
     """Tests for the SourceProfiler class."""
 
     def setup_method(self):
+        """Create a fresh SourceProfiler for each test."""
         self.profiler = SourceProfiler()
 
     def _write_csv(self, data: dict, tmpdir: str) -> str:
+        """Write a dict of columns to test.csv in tmpdir and return its path."""
         path = os.path.join(tmpdir, "test.csv")
         pd.DataFrame(data).to_csv(path, index=False)
         return path
 
     def _write_json(self, data, tmpdir: str) -> str:
+        """Write data to test.json in tmpdir and return its path."""
         path = os.path.join(tmpdir, "test.json")
         with open(path, "w") as f:
             json.dump(data, f)
         return path
 
     def _write_xml(self, xml_str: str, tmpdir: str) -> str:
+        """Write an XML string to test.xml in tmpdir and return its path."""
         path = os.path.join(tmpdir, "test.xml")
         with open(path, "w") as f:
             f.write(xml_str)
