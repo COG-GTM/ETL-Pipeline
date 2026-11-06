@@ -27,7 +27,7 @@ POSTGRES_RESERVED_WORDS = frozenset([
 _PLAIN_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
 
 _ALLOWED_BASE_TYPES = (
-    "SMALLINT", "INTEGER", "INT", "BIGINT", "SERIAL", "BIGSERIAL",
+    "SMALLINT", "INTEGER", "INT", "BIGINT",
     "DECIMAL", "NUMERIC", "REAL", "DOUBLE PRECISION", "FLOAT", "MONEY",
     "BOOLEAN", "DATE", "TIMESTAMPTZ", "TIMETZ",
     "TEXT", "VARCHAR", "CHARACTER VARYING", "CHARACTER", "CHAR", "UUID", "JSON", "JSONB",
@@ -41,21 +41,25 @@ _INTERVAL_FIELDS = (
 
 
 def _keywords(words):
+    """Build regex alternatives for SQL keywords, allowing flexible spacing."""
     return "|".join(r"\s+".join(map(re.escape, w.split())) for w in words)
 
 
+# SERIAL/BIGSERIAL are pseudo-types without array forms.
 _DATA_TYPE = re.compile(
-    r"(?:"
+    r"(?:BIG)?SERIAL"
+    r"|(?:(?:"
     r"(?:" + _keywords(_ALLOWED_BASE_TYPES) + r")(?:\s*\(\s*\d{1,4}\s*(?:,\s*\d{1,4}\s*)?\))?"
     r"|(?:TIMESTAMP|TIME)(?:\s*\(\s*\d\s*\))?(?:\s+WITH(?:OUT)?\s+TIME\s+ZONE)?"
     r"|INTERVAL(?:\s+(?:" + _keywords(_INTERVAL_FIELDS) + r"))?(?:\s*\(\s*\d\s*\))?"
     r")"
-    r"(?:\s*\[\s*\d{0,9}\s*\]){0,6}",
+    r"(?:\s*\[\s*\d{0,9}\s*\]){0,6})",
     re.IGNORECASE,
 )
 
 
 def _normalize_type(data_type: str) -> str:
+    """Normalize casing and spacing in a validated PostgreSQL data type."""
     text = " ".join(data_type.split()).upper()
     text = re.sub(r"\s*([(\[])\s*", r"\1", text)
     text = re.sub(r"\s*([)\]])", r"\1", text)
