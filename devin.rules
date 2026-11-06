@@ -12,7 +12,7 @@ This is an ETL (Extract, Transform, Load) pipeline that processes vehicle sales 
 ## Development Environment Setup
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.12+ (matches the `python:3.12-slim` image; the pinned requirements need 3.11+)
 - Docker and Docker Compose
 - AWS CLI (for S3 operations)
 - PostgreSQL (via Docker)
@@ -44,7 +44,7 @@ Create `.env` file from `.env.example` with:
 ## Code Style Guidelines
 
 ### Python Standards
-- Use Python 3.8+ features
+- Use Python 3.12+ features
 - Follow PEP 8 style guidelines
 - Use type hints where appropriate
 - Include docstrings for all functions
