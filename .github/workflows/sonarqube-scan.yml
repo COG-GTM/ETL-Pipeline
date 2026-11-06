@@ -149,15 +149,22 @@ jobs:
           # it points at (anyone can create a branch at an existing SHA, e.g. a fork
           # PR's head). In that case every commit in the PR must be attributed by
           # GitHub to a trusted account (committer may be web-flow for UI commits).
-          # More than 250 commits cannot be listed by the compare API: fail closed.
+          # The compare API lists at most 100 commits per page and 250 in total:
+          # fail closed on anything larger or on an incomplete listing.
           pr_commits_trusted() {
-            local cmp logins login
-            cmp=$(curl -sf \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "$API_URL/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA?per_page=250") || return 1
-            jq -e '(.total_commits | type) == "number" and .total_commits >= 1 and .total_commits <= 250 and (.commits | length) == .total_commits' \
-              <<<"$cmp" >/dev/null 2>&1 || return 1
+            local cmp page total commits='[]' logins login
+            for page in 1 2 3; do
+              cmp=$(curl -sf \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "$API_URL/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA?per_page=100&page=$page") || return 1
+              total=$(jq -r 'if (.total_commits | type) == "number" and (.commits | type) == "array" then .total_commits else "" end' <<<"$cmp" 2>/dev/null) || return 1
+              [[ "$total" =~ ^[0-9]+$ ]] && (( total >= 1 && total <= 250 )) || return 1
+              commits=$(jq -c --argjson c "$commits" '$c + .commits' <<<"$cmp") || return 1
+              (( $(jq 'length' <<<"$commits") < total )) || break
+            done
+            [[ "$(jq 'length' <<<"$commits")" == "$total" ]] || return 1
+            cmp=$(jq -c '{commits: .}' <<<"$commits") || return 1
             logins=$(jq -r '.commits[] | (.author.login // "-"), (if .committer.login == "web-flow" then (.author.login // "-") else (.committer.login // "-") end)' <<<"$cmp") || return 1
             while IFS= read -r login; do
               [[ "$login" != "-" ]] && is_trusted "$login" || return 1
