@@ -313,18 +313,28 @@ class PipelineBuilder:
         """Return one distinct method name per step, in step order.
 
         Names that collide after sanitizing (or after Python's NFKC
-        identifier normalization) get a numeric suffix.
+        identifier normalization), or whose ``_<name>`` method would be a
+        dunder such as ``__init__``, get a numeric suffix.
         """
-        taken = {"_init__"}
+        taken: set[str] = set()
         names = []
         for step in self.steps:
             base = self._method_name(step.name)
             name, suffix = base, 2
-            while unicodedata.normalize("NFKC", name) in taken:
+            while (
+                unicodedata.normalize("NFKC", name) in taken
+                or self._is_dunder("_" + name)
+            ):
                 name, suffix = f"{base}_{suffix}", suffix + 1
             taken.add(unicodedata.normalize("NFKC", name))
             names.append(name)
         return names
+
+    def _is_dunder(self, identifier: str) -> bool:
+        """Return True if ``identifier`` is a ``__special__`` name once
+        Python applies NFKC identifier normalization."""
+        normalized = unicodedata.normalize("NFKC", identifier)
+        return normalized.startswith("__") and normalized.endswith("__")
 
     def _method_name(self, name: Any) -> str:
         """Return ``name`` lower-cased with every character that is not
