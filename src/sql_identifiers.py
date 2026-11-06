@@ -28,15 +28,38 @@ _PLAIN_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
 
 _ALLOWED_BASE_TYPES = (
     "SMALLINT", "INTEGER", "INT", "BIGINT", "SERIAL", "BIGSERIAL",
-    "DECIMAL", "NUMERIC", "REAL", "DOUBLE PRECISION", "FLOAT",
-    "BOOLEAN", "DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ",
-    "TEXT", "VARCHAR", "CHAR", "CHARACTER VARYING", "UUID", "JSON", "JSONB",
+    "DECIMAL", "NUMERIC", "REAL", "DOUBLE PRECISION", "FLOAT", "MONEY",
+    "BOOLEAN", "DATE", "TIMESTAMPTZ", "TIMETZ",
+    "TEXT", "VARCHAR", "CHARACTER VARYING", "CHARACTER", "CHAR", "UUID", "JSON", "JSONB",
+    "BYTEA", "INET", "CIDR", "MACADDR", "XML",
 )
+_INTERVAL_FIELDS = (
+    "YEAR TO MONTH", "DAY TO HOUR", "DAY TO MINUTE", "DAY TO SECOND",
+    "HOUR TO MINUTE", "HOUR TO SECOND", "MINUTE TO SECOND",
+    "YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND",
+)
+
+
+def _keywords(words):
+    return "|".join(r"\s+".join(map(re.escape, w.split())) for w in words)
+
+
 _DATA_TYPE = re.compile(
-    r"(?P<base>" + "|".join(re.escape(t) for t in _ALLOWED_BASE_TYPES) + r")"
-    r"(?P<args>\(\s*\d{1,4}\s*(?:,\s*\d{1,4}\s*)?\))?",
+    r"(?:"
+    r"(?:" + _keywords(_ALLOWED_BASE_TYPES) + r")(?:\s*\(\s*\d{1,4}\s*(?:,\s*\d{1,4}\s*)?\))?"
+    r"|(?:TIMESTAMP|TIME)(?:\s*\(\s*\d\s*\))?(?:\s+WITH(?:OUT)?\s+TIME\s+ZONE)?"
+    r"|INTERVAL(?:\s+(?:" + _keywords(_INTERVAL_FIELDS) + r"))?(?:\s*\(\s*\d\s*\))?"
+    r")"
+    r"(?:\s*\[\s*\d{0,9}\s*\]){0,6}",
     re.IGNORECASE,
 )
+
+
+def _normalize_type(data_type: str) -> str:
+    text = " ".join(data_type.split()).upper()
+    text = re.sub(r"\s*([(\[])\s*", r"\1", text)
+    text = re.sub(r"\s*([)\]])", r"\1", text)
+    return re.sub(r"\s*,\s*", ", ", text)
 
 
 class UnsafeDDLValueError(ValueError):
@@ -63,14 +86,12 @@ def quote_identifier(name: str) -> str:
 
 
 def safe_data_type(data_type: str | None, default: str = "VARCHAR(255)") -> str:
-    """Return a column type from the allowlist of simple PostgreSQL types, upper-cased."""
+    """Return an allowlisted PostgreSQL column type (incl. INTERVAL, time zones, arrays), normalized."""
     if data_type is None:
         data_type = default
     if isinstance(data_type, str):
-        match = _DATA_TYPE.fullmatch(data_type.strip())
-        if match:
-            args = re.sub(r"\s+", "", match.group("args") or "").replace(",", ", ")
-            return " ".join(match.group("base").upper().split()) + args
+        if _DATA_TYPE.fullmatch(data_type.strip()):
+            return _normalize_type(data_type)
     raise UnsafeDDLValueError(f"Unsupported SQL data type: {data_type!r}")
 
 
