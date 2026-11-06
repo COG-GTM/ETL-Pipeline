@@ -8,8 +8,9 @@ from src import extract
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    """Isolate tests from DB_SSLMODE / DB_SSLROOTCERT / PGHOST in the env."""
-    for name in ("DB_SSLMODE", "DB_SSLROOTCERT", "PGHOST"):
+    """Isolate tests from DB_SSL* / PG* connection settings in the env."""
+    for name in ("DB_SSLMODE", "DB_SSLROOTCERT", "PGHOST", "PGHOSTADDR",
+                 "PGSERVICE"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -28,10 +29,10 @@ def test_defaults_to_verify_full():
 
 def test_reads_sslmode_and_rootcert_from_env(monkeypatch):
     """DB_SSLMODE and DB_SSLROOTCERT are passed through to libpq."""
-    monkeypatch.setenv("DB_SSLMODE", "verify-ca")
+    monkeypatch.setenv("DB_SSLMODE", "VERIFY-FULL")
     monkeypatch.setenv("DB_SSLROOTCERT", "/etc/ssl/rds-ca.pem")
     kwargs = _connect()
-    assert kwargs["sslmode"] == "verify-ca"
+    assert kwargs["sslmode"] == "verify-full"
     assert kwargs["sslrootcert"] == "/etc/ssl/rds-ca.pem"
 
 
@@ -43,7 +44,8 @@ def test_explicit_arguments_override_env(monkeypatch):
     assert kwargs["sslrootcert"] == "system"
 
 
-@pytest.mark.parametrize("mode", ["disable", "allow", "prefer", "PREFER"])
+@pytest.mark.parametrize(
+    "mode", ["disable", "allow", "prefer", "PREFER", "require", "verify-ca"])
 def test_weak_modes_rejected_for_remote_hosts(monkeypatch, mode):
     """Cleartext-capable modes never reach psycopg2 for remote hosts."""
     monkeypatch.setenv("DB_SSLMODE", mode)
@@ -60,6 +62,37 @@ def test_weak_modes_allowed_for_local_hosts(monkeypatch, host):
     """docker-compose / socket setups may opt out of TLS explicitly."""
     monkeypatch.setenv("DB_SSLMODE", "disable")
     assert _connect(host=host)["sslmode"] == "disable"
+
+
+@pytest.mark.parametrize("mode", ["require", "verify-ca"])
+def test_unverified_hostname_modes_allowed_for_local_hosts(monkeypatch, mode):
+    """require / verify-ca skip the hostname check, so local only."""
+    monkeypatch.setenv("DB_SSLMODE", mode)
+    assert _connect(host="localhost")["sslmode"] == mode
+
+
+@pytest.mark.parametrize("hostaddr", ["203.0.113.10", "127.0.0.1,10.0.0.5"])
+def test_weak_mode_rejected_when_pghostaddr_is_remote(monkeypatch, hostaddr):
+    """PGHOSTADDR overrides host for the TCP target, so it must be local."""
+    monkeypatch.setenv("DB_SSLMODE", "disable")
+    monkeypatch.setenv("PGHOSTADDR", hostaddr)
+    with pytest.raises(ValueError):
+        _connect(host="localhost")
+
+
+def test_weak_mode_allowed_when_pghostaddr_is_loopback(monkeypatch):
+    """A loopback PGHOSTADDR keeps the connection local."""
+    monkeypatch.setenv("DB_SSLMODE", "disable")
+    monkeypatch.setenv("PGHOSTADDR", "127.0.0.1")
+    assert _connect(host="localhost")["sslmode"] == "disable"
+
+
+def test_weak_mode_rejected_when_pgservice_is_set(monkeypatch):
+    """A service file can set hostaddr, so PGSERVICE counts as remote."""
+    monkeypatch.setenv("DB_SSLMODE", "disable")
+    monkeypatch.setenv("PGSERVICE", "etl")
+    with pytest.raises(ValueError):
+        _connect(host="localhost")
 
 
 def test_weak_mode_rejected_when_pghost_is_remote(monkeypatch):
