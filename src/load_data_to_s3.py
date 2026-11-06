@@ -1,3 +1,5 @@
+import csv
+
 import boto3
 import botocore.exceptions
 import pandas as pd
@@ -41,10 +43,11 @@ def connect_to_s3(aws_access_key_id, aws_secret_access_key, region_name='us-west
 
 def df_to_s3(df, key, s3_bucket, aws_access_key_id, aws_secret_access_key, region_name='us-west-2'):
     csv_buffer = StringIO()
-    # CRLF makes the csv writer quote cells with embedded CR/LF, so they
-    # cannot start a new row in a spreadsheet.
+    # Quote every cell so embedded CR/LF or delimiters cannot start a new
+    # row or column in a spreadsheet.
     safe_df = neutralize_csv_formulas(df)
-    safe_df.to_csv(csv_buffer, index=False, lineterminator="\r\n")
+    safe_df.to_csv(csv_buffer, index=False, lineterminator="\r\n",
+                   quoting=csv.QUOTE_ALL)
 
     try:
         s3_client = connect_to_s3(aws_access_key_id, aws_secret_access_key, region_name)
