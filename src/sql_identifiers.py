@@ -49,7 +49,7 @@ def _keywords(words):
 _DATA_TYPE = re.compile(
     r"(?:BIG)?SERIAL"
     r"|(?:(?:"
-    r"(?:" + _keywords(_ALLOWED_BASE_TYPES) + r")(?:\s*\(\s*\d{1,4}\s*(?:,\s*\d{1,4}\s*)?\))?"
+    r"(?:" + _keywords(_ALLOWED_BASE_TYPES) + r")(?:\s*\(\s*\d{1,8}\s*(?:,\s*\d{1,4}\s*)?\))?"
     r"|(?:TIMESTAMP|TIME)(?:\s*\(\s*\d\s*\))?(?:\s+WITH(?:OUT)?\s+TIME\s+ZONE)?"
     r"|INTERVAL(?:\s+(?:" + _keywords(_INTERVAL_FIELDS) + r"))?(?:\s*\(\s*\d\s*\))?"
     r")"
