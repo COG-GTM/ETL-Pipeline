@@ -83,7 +83,7 @@ def _within_postgres_limits(normalized: str) -> bool:
     if limit is not None and not 1 <= first <= limit:
         return False
     if second is not None:
-        return base in ("DECIMAL", "NUMERIC") and int(second) <= first
+        return base in ("DECIMAL", "NUMERIC") and int(second) <= _TYPE_LIMITS[base]
     return True
 
 
