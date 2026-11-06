@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import unicodedata
 from datetime import datetime
 from typing import Any
 
@@ -165,8 +166,9 @@ class PipelineBuilder:
         lines.append('        logger.info("Pipeline started at %s", self.start_time)')
         lines.append("")
 
-        for step in self.steps:
-            lines.append(f"        self._{self._method_name(step.name)}()")
+        method_names = self._method_names()
+        for method_name in method_names:
+            lines.append(f"        self._{method_name}()")
 
         lines.append("")
         lines.append("        elapsed = datetime.now() - self.start_time")
@@ -174,9 +176,9 @@ class PipelineBuilder:
         lines.append("        return self.metrics")
         lines.append("")
 
-        for step in self.steps:
+        for step, method_name in zip(self.steps, method_names):
             step_name = self._py_str(step.name)
-            lines.append(f"    def _{self._method_name(step.name)}(self):")
+            lines.append(f"    def _{method_name}(self):")
             lines.append(
                 f'        logger.info("Executing step: %s", {step_name})'
             )
@@ -307,9 +309,30 @@ class PipelineBuilder:
     # Helpers for generate_pipeline_code: every value derived from source
     # metadata must go through one of these before it is emitted as code.
 
+    def _method_names(self) -> list[str]:
+        """Return one distinct method name per step, in step order.
+
+        Names that collide after sanitizing (or after Python's NFKC
+        identifier normalization) get a numeric suffix.
+        """
+        taken = {"_init__"}
+        names = []
+        for step in self.steps:
+            base = self._method_name(step.name)
+            name, suffix = base, 2
+            while unicodedata.normalize("NFKC", name) in taken:
+                name, suffix = f"{base}_{suffix}", suffix + 1
+            taken.add(unicodedata.normalize("NFKC", name))
+            names.append(name)
+        return names
+
     def _method_name(self, name: Any) -> str:
-        """Return ``name`` reduced to ``[a-z0-9_]`` for a method name."""
-        return re.sub(r"[^a-z0-9_]", "_", str(name).lower())
+        """Return ``name`` lower-cased with every character that is not
+        valid in a Python identifier replaced by ``_``."""
+        return "".join(
+            ch if ("_" + ch).isidentifier() else "_"
+            for ch in str(name).lower()
+        )
 
     def _py_str(self, value: Any) -> str:
         """Return ``value`` as an escaped, single-line Python literal."""

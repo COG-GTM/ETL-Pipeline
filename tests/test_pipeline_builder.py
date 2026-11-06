@@ -153,6 +153,36 @@ def test_regular_sources_generate_unchanged_method_names():
     assert "        self._consolidate_sources()" in code
 
 
+
+def test_colliding_step_names_get_distinct_methods():
+    """Distinct steps never share a generated method, so none is skipped."""
+    builder, _ = _generate([
+        {"source": "first.csv", "format": "csv", "row_count": 1},
+        {"source": "second.csv", "format": "csv", "row_count": 1},
+        {"source": "third.json", "format": "json", "row_count": 1},
+        {"source": "fourth.csv", "format": "csv", "row_count": 1},
+    ])
+    for step, name in zip(builder.steps, ["\u00e9", "\u00f1", "a-b", "a b"]):
+        step.name = name
+    code = builder.generate_pipeline_code()
+    tree = ast.parse(code)
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
+    defs = [n.name for n in cls.body if isinstance(n, ast.FunctionDef)]
+    assert len(defs) == len(set(defs))
+    assert "_\u00e9" in defs and "_\u00f1" in defs
+    assert sorted(_run_with_stub_pandas(code)) == sorted([
+        ("csv", "first.csv"), ("csv", "second.csv"),
+        ("json", "third.json"), ("csv", "fourth.csv"),
+    ])
+
+
+def test_step_name_cannot_replace_init():
+    """A step named ``_init__`` does not override ``__init__``."""
+    builder, _ = _generate([{"source": "a.csv", "format": "csv"}])
+    builder.steps[0].name = "_init__"
+    code = builder.generate_pipeline_code()
+    assert _run_with_stub_pandas(code) == [("csv", "a.csv")]
+
 if __name__ == "__main__":
     tests = [
         fn for name, fn in sorted(globals().items())
