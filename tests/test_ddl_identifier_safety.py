@@ -213,3 +213,22 @@ def test_dollar_sign_names_keep_unquoted_meaning_in_both_generators():
     detected = SchemaDetector().generate_ddl(schema)
     assert "CREATE TABLE sales$ (" in detected
     assert "    order$ VARCHAR(255)" in detected
+
+
+def test_profiled_csv_header_and_file_name_stay_quoted(tmp_path):
+    """A profiled CSV with an injected header and file name yields one CREATE TABLE statement."""
+    import re
+    from src.profiler import SourceProfiler
+    csv_path = tmp_path / "transactions); DROP TABLE t; --.csv"
+    csv_path.write_text("txn_id,x INT); DROP TABLE t; --\n1,a\n2,b\n")
+    schema = SchemaDetector().detect_schema(SourceProfiler().profile_auto(str(csv_path)))
+    designer = TargetModelDesigner()
+    designer.add_source_schema(schema)
+    designer.design_star_schema(fact_table_hint="transactions")
+    ddl = designer.generate_target_ddl()
+    sql = "\n".join(line for line in ddl.splitlines() if not line.startswith("--"))
+    outside_quotes = re.sub(r'"(?:[^"]|"")*"', '""', sql)
+    assert outside_quotes.count(";") == outside_quotes.count("CREATE TABLE") == 1
+    assert "DROP" not in outside_quotes
+    assert 'CREATE TABLE "fact_transactions);_drop_table_t;___" (' in ddl
+    assert '    "x INT); DROP TABLE t; --" VARCHAR(255) NOT NULL,' in ddl
