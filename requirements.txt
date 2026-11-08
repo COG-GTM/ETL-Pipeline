@@ -2,3 +2,5 @@ psycopg2-binary
 pandas
 boto3
 python-dotenv
+# Security floor: urllib3 < 2.8.0 is affected by CVE-2025-66471, CVE-2025-66418, CVE-2026-21441 and friends (SNYK-PYTHON-URLLIB3-*)
+urllib3>=2.8.0
