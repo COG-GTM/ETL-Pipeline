@@ -137,3 +137,20 @@ def test_invalid_connect_timeout_is_rejected(monkeypatch, value):
         with pytest.raises(ValueError):
             extract.connect_to_postgres("etl", "db.example.com", 5432, "u", "p")
     connect.assert_not_called()
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_extract_closes_connection(fails):
+    """The extract connection is closed whether or not the query succeeds."""
+    conn = mock.MagicMock()
+    with mock.patch.object(extract, "connect_to_postgres", return_value=conn), \
+            mock.patch.object(extract.pd, "read_sql") as read_sql:
+        if fails:
+            read_sql.side_effect = RuntimeError("query failed")
+            with pytest.raises(RuntimeError):
+                extract.extract_vehicle_sales_data("etl", "db", 5432, "u", "p")
+        else:
+            read_sql.return_value = extract.pd.DataFrame(
+                {"sale_date": [], "service_date": []})
+            extract.extract_vehicle_sales_data("etl", "db", 5432, "u", "p")
+    conn.close.assert_called_once_with()
