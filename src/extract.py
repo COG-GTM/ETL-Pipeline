@@ -116,6 +116,7 @@ def extract_vehicle_sales_data(dbname, host, port, user, password):
     - Replaces null service type/cost with defaults
     - Computes total sales revenue per transaction
     - Formats dates as datetime
+    - Closes the database connection even if the query fails
     """
     conn = connect_to_postgres(dbname, host, port, user, password)
 
@@ -138,7 +139,10 @@ def extract_vehicle_sales_data(dbname, host, port, user, password):
     LEFT JOIN service_records sr ON v.vin = sr.vin
     """
 
-    df = pd.read_sql(query, conn)
+    try:
+        df = pd.read_sql(query, conn)
+    finally:
+        conn.close()
 
     # Convert dates to datetime objects
     df['sale_date'] = pd.to_datetime(df['sale_date'], errors='coerce')
