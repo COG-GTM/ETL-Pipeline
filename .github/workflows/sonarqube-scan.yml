@@ -297,7 +297,7 @@ jobs:
             '(.projectStatus.conditions | type) == "array"')
 
           SECURITY_HOTSPOTS_RESP=$(sonar_get \
-            "https://sonarcloud.io/api/hotspots/search?projectKey=COG-GTM_ETL-Pipeline&pullRequest=$PR_NUMBER&ps=100" \
+            "https://sonarcloud.io/api/hotspots/search?projectKey=COG-GTM_ETL-Pipeline&pullRequest=$PR_NUMBER&status=TO_REVIEW&ps=100" \
             '(.paging.total | type) == "number"')
 
           VULNERABILITIES=$(jq '[.issues[] | select(.type=="VULNERABILITY")] | length' <<<"$ALL_ISSUES")
@@ -323,6 +323,7 @@ jobs:
             <<<"$ALL_ISSUES")
 
           HOTSPOT_REFS=$(jq -c '[(.hotspots // [])[]?
+            | select(.status == "TO_REVIEW")
             | {key: .key, rule: .ruleKey, type: "SECURITY_HOTSPOT", severity: .vulnerabilityProbability, line: .line}
             | select((.key | type) == "string" and (.key | test("^[A-Za-z0-9_-]{1,64}$")))
             | select((.rule | type) == "string" and (.rule | test("^[a-z0-9]{1,32}:[A-Za-z0-9_-]{1,64}$")))
