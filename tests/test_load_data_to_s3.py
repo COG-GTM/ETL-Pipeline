@@ -119,3 +119,14 @@ def test_string_dtype_columns_are_neutralized():
 
     assert out["buyer_name"].tolist()[:2] == ["'@x", "ok"]
     assert pd.isna(out["buyer_name"].tolist()[2])
+
+
+def test_duplicate_column_names_are_neutralized():
+    """Columns sharing a name are each neutralized in the upload."""
+    df = pd.DataFrame([["=1+1", "@SUM(A1)", 5]],
+                      columns=["name", "name", "price"])
+
+    body = _uploaded_body(df)
+    rows = list(csv.reader(StringIO(body, newline="")))
+
+    assert rows[1] == ["'=1+1", "'@SUM(A1)", "5"]

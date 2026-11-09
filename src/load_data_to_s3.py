@@ -23,12 +23,13 @@ def neutralize_csv_formulas(df):
         return value
 
     safe_df = df.copy()
-    for column in safe_df.columns:
-        series = safe_df[column]
+    # Positional access so duplicate column names still yield one Series.
+    for position in range(safe_df.shape[1]):
+        series = safe_df.iloc[:, position]
         is_text = (pd.api.types.is_object_dtype(series)
                    or pd.api.types.is_string_dtype(series))
         if is_text:
-            safe_df[column] = series.map(escape)
+            safe_df.isetitem(position, series.map(escape))
     return safe_df
 
 
