@@ -8,6 +8,7 @@ SAMPLE_LIMIT = 3
 
 
 def mask_text(value: Any) -> str:
+    """Return the first character of value followed by '***'."""
     text = str(value)
     if not text:
         return ""
@@ -15,6 +16,7 @@ def mask_text(value: Any) -> str:
 
 
 def mask_email(value: Any) -> str:
+    """Mask an email as 'a***@e***.com', keeping only a purely alphabetic top-level domain."""
     text = str(value)
     local, at, domain = text.rpartition("@")
     if not at:
@@ -28,6 +30,7 @@ def mask_email(value: Any) -> str:
 
 
 def mask_phone(value: Any) -> str:
+    """Mask every letter/digit except the last two, which are kept only if there are at least four."""
     text = str(value)
     keep = 2 if sum(c.isalnum() for c in text) >= 4 else 0
     masked = []
