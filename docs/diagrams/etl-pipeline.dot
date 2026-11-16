@@ -1,0 +1,20 @@
+// Regenerate: dot -Tsvg docs/diagrams/etl-pipeline.dot -o docs/diagrams/etl-pipeline.svg
+digraph etl_pipeline {
+  graph [rankdir=LR, fontname="Helvetica", nodesep=0.4, ranksep=0.45, pad=0.3, style="rounded,filled", fillcolor="#EFF6FF", color="#3B82F6",
+         label="Vehicle sales ETL: python main.py (also the Docker image CMD)", labelloc=t, fontsize=14];
+  node  [shape=box, style="rounded,filled", fillcolor="#FFFFFF", color="#475569", fontname="Helvetica", fontsize=11];
+  edge  [color="#475569", fontname="Helvetica", fontsize=9];
+  env      [label=".env via python-dotenv\nDB_NAME, DB_HOST, DB_PORT,\nDB_USER, DB_PASSWORD,\naws_access_key_id,\naws_secret_access_key_id", shape=note, fillcolor="#F8FAFC"];
+  pg       [label="PostgreSQL 15\ndocker-compose: postgres\nseeded by init/init.sql\n\ndealerships, vehicles,\nsales_transactions,\nservice_records", shape=cylinder, fillcolor="#DBEAFE"];
+  extract  [label="src/extract.py\nextract_vehicle_sales_data()\n\nJOIN 4 tables, COALESCE\nservice defaults, parse dates\n-> pandas DataFrame"];
+  transform[label="src/transform.py\nidentify_and_remove_\nduplicated_data()\n\ndrop_duplicates()"];
+  load     [label="src/load_data_to_s3.py\ndf_to_s3()\n\nDataFrame -> CSV\nboto3 put_object"];
+  s3       [label="Amazon S3 (us-west-2)\ns3://cognition-devin/\nauto_oem/etl/\nvehicle_sales_deduped.csv", shape=cylinder, fillcolor="#FEF3C7"];
+
+  env -> extract [style=dashed, label="DB creds"];
+  env -> load    [style=dashed, label="AWS keys"];
+  pg -> extract [label="psycopg2"];
+  extract -> transform -> load;
+  load -> s3 [label="CSV"];
+  {rank=same; env; pg}
+}

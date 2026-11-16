@@ -1,0 +1,25 @@
+// Regenerate: dot -Tsvg docs/diagrams/pr-quality-gate.dot -o docs/diagrams/pr-quality-gate.svg
+digraph pr_quality_gate {
+  graph [rankdir=LR, fontname="Helvetica", nodesep=0.4, ranksep=0.45, pad=0.3, style="rounded,filled", fillcolor="#ECFDF5", color="#10B981",
+         label="PR quality gate: .github/workflows/sonarqube-scan.yml", labelloc=t, fontsize=14];
+  node  [shape=box, style="rounded,filled", fillcolor="#FFFFFF", color="#475569", fontname="Helvetica", fontsize=11];
+  edge  [color="#475569", fontname="Helvetica", fontsize=9];
+  pr     [label="Pull request\nopened / synchronize / reopened\n(or workflow_dispatch)", shape=oval, fillcolor="#D1FAE5"];
+  sonar  [label="SonarCloud scan\n+ Quality Gate check\nproject COG-GTM_ETL-Pipeline"];
+  pass   [label="Gate passed:\njob succeeds", shape=oval, fillcolor="#D1FAE5"];
+  check  [label="Last commit by\nDevin AI or tagged\n[devin-fix]?", shape=diamond];
+  devin  [label="POST api.devin.ai/v1/sessions\nprompt: Sonar issues,\nfailed conditions, changed files", fillcolor="#FCE7F3"];
+  comment[label="PR comment:\nissue counts +\nDevin session link"];
+  fix    [label="Devin pushes one commit\n\"fix: [devin-fix] ...\"\nto the PR branch"];
+  human  [label="Job fails (exit 1)\nyes: human review required\nno: waits for Devin's fix", shape=oval, fillcolor="#FEE2E2"];
+
+  pr -> sonar;
+  sonar -> pass [label="passed"];
+  sonar -> check [label="failed"];
+  check -> devin [label="no"];
+  check -> human [label="yes"];
+  devin -> comment;
+  devin -> human [style=dotted];
+  devin -> fix [style=dashed];
+  fix -> pr [style=dashed, label="re-runs workflow", constraint=false];
+}
