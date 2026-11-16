@@ -219,6 +219,46 @@ def test_composite_components_do_not_add_foreign_key_passes():
     assert gate.execute(df, "lines")["gate_passed"] is False
 
 
+def test_duplicate_transaction_id_blocks_gate():
+    """A reused ``transaction_id`` with a different amount is rejected."""
+    df = pd.DataFrame(
+        {
+            "transaction_id": ["T1", "T2", "T2", "T3"],
+            "amount": [10.0, 20.0, 999.0, 30.0],
+        }
+    )
+    report = DataQualityEngine().run_all_checks(df, "transactions")
+    rule = _rule(report, "uniqueness_transaction_id")
+    assert rule["severity"] == "critical"
+    assert rule["passed"] is False
+    assert report["critical_failures"] == 1
+    result = QualityGatePlaybook(min_score=0, block_on_critical=True).execute(
+        df, "transactions"
+    )
+    assert result["gate_passed"] is False
+    assert result["decision"] == "REJECTED"
+
+
+def test_foreign_key_rules_do_not_raise_score():
+    """Always-passing foreign key rules are reported but not scored."""
+    base = pd.DataFrame(
+        {"id": [1, 2, 3], "email": ["bad", "worse", "a@b.com"]}
+    )
+    padded = base.assign(
+        customer_id=["C1", "C1", "C2"],
+        store_id=["S1", "S2", "S2"],
+        region_key=["R1", "R1", "R1"],
+    )
+    engine = DataQualityEngine()
+    base_report = engine.run_all_checks(base, "weak")
+    padded_report = engine.run_all_checks(padded, "weak")
+    assert padded_report["overall_score"] == base_report["overall_score"]
+    assert padded_report["total_checks"] == base_report["total_checks"]
+    fk = _rule(padded_report, "uniqueness_customer_id")
+    assert fk["scored"] is False
+    assert _rule(padded_report, "uniqueness_id")["scored"] is True
+
+
 if __name__ == "__main__":
     import sys
 

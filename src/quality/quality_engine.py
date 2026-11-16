@@ -5,10 +5,17 @@ import pandas as pd
 
 
 class QualityRule:
-    def __init__(self, name: str, description: str, severity: str = "warning"):
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        severity: str = "warning",
+        scored: bool = True,
+    ):
         self.name = name
         self.description = description
         self.severity = severity
+        self.scored = scored
         self.passed = False
         self.details: dict[str, Any] = {}
 
@@ -18,6 +25,7 @@ class QualityRule:
             "description": self.description,
             "severity": self.severity,
             "passed": self.passed,
+            "scored": self.scored,
             "details": self.details,
         }
 
@@ -45,12 +53,13 @@ class DataQualityEngine:
         self._check_timeliness(df)
         self._check_accuracy(df)
 
-        total = len(self.rules)
-        passed = sum(1 for r in self.rules if r.passed)
+        scored = [r for r in self.rules if r.scored]
+        total = len(scored)
+        passed = sum(1 for r in scored if r.passed)
         failed = total - passed
 
-        critical_failures = sum(1 for r in self.rules if not r.passed and r.severity == "critical")
-        error_failures = sum(1 for r in self.rules if not r.passed and r.severity == "error")
+        critical_failures = sum(1 for r in scored if not r.passed and r.severity == "critical")
+        error_failures = sum(1 for r in scored if not r.passed and r.severity == "error")
 
         if total > 0:
             base_score = (passed / total) * 100
@@ -230,6 +239,7 @@ class DataQualityEngine:
                 f"Check uniqueness for foreign key column '{col}' "
                 "(duplicates expected)",
                 "info",
+                scored=False,
             )
             id_rule.passed = True
             id_rule.details = {
