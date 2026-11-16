@@ -1,5 +1,43 @@
+import os
 from datetime import datetime
 from typing import Any
+
+QA_MIN_SOURCE_SCORE = 60
+QA_CLEAN_SOURCE_SCORE = 80
+
+
+def _unassessed_profiles(profiles: list[dict[str, Any]], quality_reports: list[dict[str, Any]]) -> list[str]:
+    """Return profiled sources not covered by a report; each report covers at most one profile.
+
+    A report can cover a profile whose basename, with or without extension, equals the report's
+    source (e.g. report "customers" covers "data/customers.csv"). Reports are assigned with a
+    maximum bipartite matching (exact basename tried first) so the result does not depend on report order.
+    """
+    names = [os.path.basename(str(p.get("source") or "")).lower() for p in profiles]
+    keys = [os.path.basename(str(qr.get("source", ""))).lower() for qr in quality_reports]
+    candidates = [
+        [i for i, n in enumerate(names) if n and n == key]
+        + [i for i, n in enumerate(names) if n and n != key and os.path.splitext(n)[0] == key]
+        for key in keys
+    ]
+    owner: dict[int, int] = {}
+
+    def assign(report: int, seen: set[int]) -> bool:
+        """Try to give ``report`` a profile, moving earlier owners along augmenting paths.
+
+        ``seen`` holds profile indices already visited in this search. Returns True if assigned.
+        """
+        for i in candidates[report]:
+            if i not in seen:
+                seen.add(i)
+                if i not in owner or assign(owner[i], seen):
+                    owner[i] = report
+                    return True
+        return False
+
+    for report in range(len(keys)):
+        assign(report, set())
+    return [p.get("source") or f"profile #{i}" for i, p in enumerate(profiles) if i not in owner]
 
 
 class AgentPersona:
@@ -98,12 +136,22 @@ class MultiAgentOrchestrator:
 
         self._run_architect_phase(source_profiles, target_model)
         self._run_developer_phase(pipeline_config)
-        self._run_qa_phase(quality_reports, source_profiles)
-        self._run_pm_phase(source_profiles, quality_reports, target_model, pipeline_config)
+        sign_off = self._run_qa_phase(quality_reports, source_profiles)
+        self._run_pm_phase(source_profiles, quality_reports, target_model, pipeline_config, sign_off)
 
-        self._log_event("workflow_completed", "PM", "All phases completed successfully")
+        if sign_off["approved"]:
+            status = "completed"
+            self._log_event("workflow_completed", "PM", "All phases completed; QA sign-off approved")
+        else:
+            status = "failed"
+            self._log_event(
+                "workflow_failed", "PM",
+                "QA sign-off rejected: " + "; ".join(sign_off["conditions"]),
+            )
 
         return {
+            "status": status,
+            "qa_sign_off": sign_off,
             "orchestration_completed_at": datetime.now().isoformat(),
             "agents": {name: agent.to_dict() for name, agent in self.agents.items()},
             "workflow_log": self.workflow_log,
@@ -191,40 +239,71 @@ class MultiAgentOrchestrator:
         developer.status = "completed"
         self._log_event("phase_completed", "Developer", "Pipeline code generated and reviewed")
 
-    def _run_qa_phase(self, quality_reports: list[dict[str, Any]], profiles: list[dict[str, Any]]) -> None:
+    def _run_qa_phase(
+        self, quality_reports: list[dict[str, Any]], profiles: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Record per-source QA results and return a sign-off that requires every profiled source to pass."""
         qa = self.agents["qa"]
         qa.status = "active"
         self._log_event("phase_started", "QA", "Quality assurance and validation phase")
 
+        conditions: list[str] = []
+        failing_sources: list[str] = []
         for qr in quality_reports:
+            source = qr.get("source", "unknown")
+            score = qr.get("overall_score", 0)
+            critical = qr.get("critical_failures", 0)
             qa.record_action("quality_assessment", {
-                "source": qr.get("source", "unknown"),
-                "score": qr.get("overall_score", 0),
+                "source": source,
+                "score": score,
                 "grade": qr.get("grade", "F"),
                 "checks_run": qr.get("total_checks", 0),
                 "checks_passed": qr.get("passed", 0),
                 "checks_failed": qr.get("failed", 0),
-                "critical_issues": qr.get("critical_failures", 0),
+                "critical_issues": critical,
             })
+            if score < QA_MIN_SOURCE_SCORE:
+                failing_sources.append(source)
+                conditions.append(f"{source}: score {score} below minimum {QA_MIN_SOURCE_SCORE}")
+            if critical > 0:
+                if source not in failing_sources:
+                    failing_sources.append(source)
+                conditions.append(f"{source}: {critical} critical quality failure(s)")
+
+        unassessed_sources = _unassessed_profiles(profiles, quality_reports)
+        for source in unassessed_sources:
+            conditions.append(f"{source}: profiled but no quality report")
+        if not quality_reports:
+            conditions.append("No quality reports provided")
 
         all_scores = [qr.get("overall_score", 0) for qr in quality_reports]
         avg_score = sum(all_scores) / len(all_scores) if all_scores else 0
+        min_score = min(all_scores) if all_scores else 0
+
+        approved = not conditions
+        if approved and min_score < QA_CLEAN_SOURCE_SCORE:
+            conditions.append("Address quality issues before production deployment")
 
         qa.record_action("quality_summary", {
+            "sources_profiled": len(profiles),
             "sources_assessed": len(quality_reports),
             "average_quality_score": round(avg_score, 1),
-            "data_contracts_validated": True,
-            "regression_tests_passed": True,
+            "minimum_quality_score": min_score,
+            "failing_sources": failing_sources,
+            "unassessed_sources": unassessed_sources,
             "recommendation_count": sum(len(qr.get("recommendations", [])) for qr in quality_reports),
         })
 
-        qa.record_action("sign_off", {
-            "approved": avg_score >= 60,
-            "conditions": [] if avg_score >= 80 else ["Address critical quality issues before production deployment"],
-        })
+        sign_off = {"approved": approved, "conditions": conditions}
+        qa.record_action("sign_off", sign_off)
 
         qa.status = "completed"
-        self._log_event("phase_completed", "QA", f"Quality assessment complete (avg score: {avg_score:.1f})")
+        self._log_event(
+            "phase_completed", "QA",
+            f"Quality assessment complete (avg score: {avg_score:.1f}, "
+            f"sign-off: {'approved' if approved else 'rejected'})",
+        )
+        return sign_off
 
     def _run_pm_phase(
         self,
@@ -232,6 +311,7 @@ class MultiAgentOrchestrator:
         quality_reports: list[dict[str, Any]],
         target_model: dict[str, Any],
         pipeline_config: dict[str, Any],
+        sign_off: dict[str, Any],
     ) -> None:
         pm = self.agents["pm"]
         pm.status = "active"
@@ -239,8 +319,12 @@ class MultiAgentOrchestrator:
 
         pm.record_action("progress_tracking", {
             "phases_completed": ["architect", "developer", "qa"],
-            "overall_status": "on_track",
-            "milestone": "Pipeline design and validation complete",
+            "overall_status": "on_track" if sign_off["approved"] else "blocked",
+            "milestone": (
+                "Pipeline design and validation complete"
+                if sign_off["approved"]
+                else "Blocked on QA sign-off"
+            ),
         })
 
         total_rows = sum(p.get("row_count", 0) for p in profiles)
