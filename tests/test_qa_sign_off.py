@@ -126,3 +126,19 @@ def test_all_sources_pass_is_approved(profiles):
     assert result["qa_sign_off"]["conditions"] == []
     assert result["status"] == "completed"
     assert "workflow_completed" in [e["event"] for e in result["workflow_log"]]
+
+
+@pytest.mark.parametrize(
+    "profile_paths,report_source,expected_unassessed",
+    [
+        (["data/sales.csv", "data/sales.csv.json"], "sales.csv", ["data/sales.csv.json"]),
+        (["data/sales.csv.json", "data/sales.csv"], "sales.csv", ["data/sales.csv.json"]),
+        (["data/sales.csv", "data/sales.json"], "sales", ["data/sales.json"]),
+    ],
+)
+def test_one_report_covers_only_one_profile(profile_paths, report_source, expected_unassessed):
+    """A single report cannot cover several profiles that share a name or stem."""
+    result, qa = _run([_report(report_source, 100)], [_profile(p) for p in profile_paths])
+
+    assert qa["quality_summary"]["unassessed_sources"] == expected_unassessed
+    assert result["qa_sign_off"]["approved"] is False

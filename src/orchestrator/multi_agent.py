@@ -6,10 +6,25 @@ QA_MIN_SOURCE_SCORE = 60
 QA_CLEAN_SOURCE_SCORE = 80
 
 
-def _profile_keys(source: Any) -> set[str]:
-    """Return the names a quality report may use for a profiled file: its basename with and without extension."""
-    name = os.path.basename(str(source)).lower()
-    return {name, os.path.splitext(name)[0]}
+def _unassessed_profiles(profiles: list[dict[str, Any]], quality_reports: list[dict[str, Any]]) -> list[str]:
+    """Return profiled sources not covered by a report; each report covers at most one profile.
+
+    A report matches a profile whose basename equals the report's source, else one whose
+    basename without extension does (e.g. report "customers" covers "data/customers.csv").
+    """
+    names = [os.path.basename(str(p.get("source") or "")).lower() for p in profiles]
+    covered: set[int] = set()
+    for qr in quality_reports:
+        key = os.path.basename(str(qr.get("source", ""))).lower()
+        candidates = [i for i, n in enumerate(names) if n and n == key and i not in covered]
+        if not candidates:
+            candidates = [
+                i for i, n in enumerate(names)
+                if n and os.path.splitext(n)[0] == key and i not in covered
+            ]
+        if candidates:
+            covered.add(candidates[0])
+    return [p.get("source") or f"profile #{i}" for i, p in enumerate(profiles) if i not in covered]
 
 
 class AgentPersona:
@@ -242,12 +257,7 @@ class MultiAgentOrchestrator:
                     failing_sources.append(source)
                 conditions.append(f"{source}: {critical} critical quality failure(s)")
 
-        assessed = {os.path.basename(str(qr.get("source", ""))).lower() for qr in quality_reports}
-        unassessed_sources = [
-            p.get("source") or f"profile #{i}"
-            for i, p in enumerate(profiles)
-            if not p.get("source") or not _profile_keys(p["source"]) & assessed
-        ]
+        unassessed_sources = _unassessed_profiles(profiles, quality_reports)
         for source in unassessed_sources:
             conditions.append(f"{source}: profiled but no quality report")
         if not quality_reports:
