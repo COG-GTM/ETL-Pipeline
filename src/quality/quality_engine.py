@@ -38,7 +38,7 @@ class DataQualityEngine:
         return any(hint in name for hint in cls.MONEY_COLUMN_HINTS)
 
     def _numeric_columns(self, df: pd.DataFrame) -> dict[Any, pd.Series]:
-        """Numeric columns plus mostly-numeric money columns coerced to numbers (unparseable cells become NaN)."""
+        """Numeric columns plus money columns coerced to numbers (unparseable cells become NaN)."""
         columns = {col: df[col] for col in df.select_dtypes(include=["float64", "int64"]).columns}
         for col in df.columns:
             if col in columns or not self._is_money_column(col):
@@ -46,8 +46,7 @@ class DataQualityEngine:
             converted = pd.to_numeric(df[col], errors="coerce")
             if not pd.api.types.is_numeric_dtype(converted) or pd.api.types.is_bool_dtype(converted):
                 continue
-            present = df[col].notna()
-            if present.any() and converted[present].notna().sum() * 2 >= present.sum():
+            if converted.notna().any():
                 columns[col] = converted
         return columns
 
@@ -210,7 +209,8 @@ class DataQualityEngine:
         for col, values in self._numeric_columns(df).items():
             if self._is_money_column(col):
                 non_numeric = df[col].notna() & values.isna()
-                if non_numeric.any():
+                mostly_numeric = values.notna().sum() >= non_numeric.sum()
+                if non_numeric.any() and mostly_numeric:
                     rule = QualityRule(f"numeric_{col}", f"Check that values in '{col}' are numeric", "error")
                     rule.passed = False
                     rule.details = {

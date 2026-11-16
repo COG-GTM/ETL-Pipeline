@@ -103,3 +103,13 @@ def test_text_label_money_named_column_is_not_flagged():
     rules = _rules(DataQualityEngine().run_all_checks(df))
     assert "numeric_cost_center" not in rules
     assert "numeric_price_tier" not in rules
+
+
+def test_mostly_text_money_column_still_flags_negatives():
+    """Negatives are reported even when most cells in the money column are text."""
+    df = pd.DataFrame({"total_amount": ["TBD", -5, "pending"]})
+    report = DataQualityEngine().run_all_checks(df)
+    rules = _rules(report)
+    assert rules["non_negative_total_amount"]["details"]["negative_count"] == 1
+    assert report["error_failures"] >= 1
+    assert report["overall_score"] < 100
