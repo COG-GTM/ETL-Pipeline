@@ -6,8 +6,10 @@ QA_MIN_SOURCE_SCORE = 60
 QA_CLEAN_SOURCE_SCORE = 80
 
 
-def _source_key(source: Any) -> str:
-    return os.path.splitext(os.path.basename(str(source)))[0].lower()
+def _profile_keys(source: Any) -> set[str]:
+    """Return the names a quality report may use for a profiled file: its basename with and without extension."""
+    name = os.path.basename(str(source)).lower()
+    return {name, os.path.splitext(name)[0]}
 
 
 class AgentPersona:
@@ -212,6 +214,7 @@ class MultiAgentOrchestrator:
     def _run_qa_phase(
         self, quality_reports: list[dict[str, Any]], profiles: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        """Record per-source QA results and return a sign-off that requires every profiled source to pass."""
         qa = self.agents["qa"]
         qa.status = "active"
         self._log_event("phase_started", "QA", "Quality assurance and validation phase")
@@ -239,11 +242,11 @@ class MultiAgentOrchestrator:
                     failing_sources.append(source)
                 conditions.append(f"{source}: {critical} critical quality failure(s)")
 
-        assessed = {_source_key(qr.get("source", "")) for qr in quality_reports}
+        assessed = {os.path.basename(str(qr.get("source", ""))).lower() for qr in quality_reports}
         unassessed_sources = [
             p.get("source") or f"profile #{i}"
             for i, p in enumerate(profiles)
-            if not p.get("source") or _source_key(p["source"]) not in assessed
+            if not p.get("source") or not _profile_keys(p["source"]) & assessed
         ]
         for source in unassessed_sources:
             conditions.append(f"{source}: profiled but no quality report")
