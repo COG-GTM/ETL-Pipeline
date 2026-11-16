@@ -9,22 +9,31 @@ QA_CLEAN_SOURCE_SCORE = 80
 def _unassessed_profiles(profiles: list[dict[str, Any]], quality_reports: list[dict[str, Any]]) -> list[str]:
     """Return profiled sources not covered by a report; each report covers at most one profile.
 
-    A report matches a profile whose basename equals the report's source, else one whose
-    basename without extension does (e.g. report "customers" covers "data/customers.csv").
+    A report can cover a profile whose basename, with or without extension, equals the report's
+    source (e.g. report "customers" covers "data/customers.csv"). Reports are assigned with a
+    maximum bipartite matching (exact basename tried first) so the result does not depend on report order.
     """
     names = [os.path.basename(str(p.get("source") or "")).lower() for p in profiles]
-    covered: set[int] = set()
-    for qr in quality_reports:
-        key = os.path.basename(str(qr.get("source", ""))).lower()
-        candidates = [i for i, n in enumerate(names) if n and n == key and i not in covered]
-        if not candidates:
-            candidates = [
-                i for i, n in enumerate(names)
-                if n and os.path.splitext(n)[0] == key and i not in covered
-            ]
-        if candidates:
-            covered.add(candidates[0])
-    return [p.get("source") or f"profile #{i}" for i, p in enumerate(profiles) if i not in covered]
+    keys = [os.path.basename(str(qr.get("source", ""))).lower() for qr in quality_reports]
+    candidates = [
+        [i for i, n in enumerate(names) if n and n == key]
+        + [i for i, n in enumerate(names) if n and n != key and os.path.splitext(n)[0] == key]
+        for key in keys
+    ]
+    owner: dict[int, int] = {}
+
+    def assign(report: int, seen: set[int]) -> bool:
+        for i in candidates[report]:
+            if i not in seen:
+                seen.add(i)
+                if i not in owner or assign(owner[i], seen):
+                    owner[i] = report
+                    return True
+        return False
+
+    for report in range(len(keys)):
+        assign(report, set())
+    return [p.get("source") or f"profile #{i}" for i, p in enumerate(profiles) if i not in owner]
 
 
 class AgentPersona:

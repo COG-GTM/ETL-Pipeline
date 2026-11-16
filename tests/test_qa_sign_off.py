@@ -142,3 +142,21 @@ def test_one_report_covers_only_one_profile(profile_paths, report_source, expect
 
     assert qa["quality_summary"]["unassessed_sources"] == expected_unassessed
     assert result["qa_sign_off"]["approved"] is False
+
+
+@pytest.mark.parametrize(
+    "profile_paths,report_sources",
+    [
+        (["data/sales.csv", "data/sales.json"], ["sales", "sales.csv"]),
+        (["data/sales.csv", "data/sales.json"], ["sales.csv", "sales"]),
+        (["data/sales.csv", "data/sales.csv.json"], ["sales.csv", "sales"]),
+        (["data/sales.csv", "data/sales.csv.json"], ["sales", "sales.csv"]),
+    ],
+)
+def test_coverage_does_not_depend_on_report_order(profile_paths, report_sources):
+    """Reports that can cover every profile do so regardless of their order."""
+    reports = [_report(s, 100) for s in report_sources]
+    result, qa = _run(reports, [_profile(p) for p in profile_paths])
+
+    assert qa["quality_summary"]["unassessed_sources"] == []
+    assert result["qa_sign_off"]["approved"] is True
