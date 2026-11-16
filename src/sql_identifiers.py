@@ -7,12 +7,12 @@ must never be pasted into SQL text verbatim.
 import re
 
 _DATA_TYPE = re.compile(
-    r"(?:SMALLINT|INTEGER|INT|BIGINT|SERIAL|BIGSERIAL|REAL|DOUBLE PRECISION|BOOLEAN|DATE|TIMESTAMPTZ"
+    r"(?:SMALLINT|INTEGER|INT|BIGINT|SERIAL|BIGSERIAL|REAL|DOUBLE PRECISION|BOOLEAN|DATE"
     r"|TEXT|UUID|JSON|JSONB)"
     r"|(?:VARCHAR|CHAR)(?:\(\d{1,5}\))?"
     r"|(?:DECIMAL|NUMERIC)(?:\(\d{1,4}(?:,\s?\d{1,4})?\))?"
     r"|FLOAT(?:\(\d{1,2}\))?"
-    r"|(?:TIME|TIMESTAMP)(?:\([0-6]\))?",
+    r"|(?:TIME|TIMESTAMP|TIMESTAMPTZ)(?:\([0-6]\))?",
     re.IGNORECASE,
 )
 

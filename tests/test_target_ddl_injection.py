@@ -95,7 +95,7 @@ def test_quote_identifier_rejects_unusable_names(name):
         quote_identifier(name)
 
 
-@pytest.mark.parametrize("dtype", ["VARCHAR(255)", "DECIMAL", "INTEGER", "DATE", "TIMESTAMP", "BOOLEAN", "NUMERIC(10, 2)"])
+@pytest.mark.parametrize("dtype", ["VARCHAR(255)", "DECIMAL", "INTEGER", "DATE", "TIMESTAMP", "BOOLEAN", "NUMERIC(10, 2)", "TIMESTAMPTZ", "TIMESTAMPTZ(3)"])
 def test_safe_data_type_accepts_detector_types(dtype):
     assert safe_data_type(dtype) == dtype
 
