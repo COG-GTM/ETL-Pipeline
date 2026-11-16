@@ -104,3 +104,9 @@ def test_long_source_name_still_generates_ddl():
     table = "t" * 60
     ddl = _ddl(_schema("transactions", ["transaction_id"]), _schema(table, ["c"]))
     assert f'"dim_{table}_sk" SERIAL PRIMARY KEY' in ddl
+
+
+@pytest.mark.parametrize("dtype", ["INTEGER(4)", "BOOLEAN(1)", "DATE(3)", "TEXT(10)"])
+def test_safe_data_type_rejects_modifiers_postgres_does_not_accept(dtype):
+    with pytest.raises(UnsafeDDLValueError):
+        safe_data_type(dtype)
