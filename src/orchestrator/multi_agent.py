@@ -23,6 +23,10 @@ def _unassessed_profiles(profiles: list[dict[str, Any]], quality_reports: list[d
     owner: dict[int, int] = {}
 
     def assign(report: int, seen: set[int]) -> bool:
+        """Try to give ``report`` a profile, moving earlier owners along augmenting paths.
+
+        ``seen`` holds profile indices already visited in this search. Returns True if assigned.
+        """
         for i in candidates[report]:
             if i not in seen:
                 seen.add(i)
