@@ -149,7 +149,9 @@ jobs:
           # A branch creation only proves who created the ref, not who wrote the commit
           # it points at (anyone can create a branch at an existing SHA, e.g. a fork
           # PR's head). In that case every commit in the PR must be attributed by
-          # GitHub to a trusted account (committer may be web-flow for UI commits).
+          # GitHub to a trusted account (committer may be web-flow for UI commits)
+          # and carry a signature GitHub verified. The login mapping alone comes
+          # from commit email addresses, which anyone can forge.
           # The compare API lists at most 100 commits per page and 250 in total:
           # fail closed on anything larger or on an incomplete listing.
           pr_commits_trusted() {
@@ -166,6 +168,7 @@ jobs:
             done
             [[ "$(jq 'length' <<<"$commits")" == "$total" ]] || return 1
             cmp=$(jq -c '{commits: .}' <<<"$commits") || return 1
+            jq -e 'all(.commits[]; .commit.verification.verified == true)' <<<"$cmp" >/dev/null || return 1
             logins=$(jq -r '.commits[] | (.author.login // "-"), (if .committer.login == "web-flow" then (.author.login // "-") else (.committer.login // "-") end)' <<<"$cmp") || return 1
             while IFS= read -r login; do
               [[ "$login" != "-" ]] && is_trusted "$login" || return 1
