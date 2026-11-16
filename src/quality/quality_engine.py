@@ -25,9 +25,30 @@ class QualityRule:
 class DataQualityEngine:
     SEVERITY_WEIGHTS = {"critical": 0, "error": 25, "warning": 50, "info": 75}
 
+    MONEY_COLUMN_HINTS = ("price", "amount", "cost")
+
     def __init__(self):
         self.rules: list[QualityRule] = []
         self.results: list[dict[str, Any]] = []
+
+    @classmethod
+    def _is_money_column(cls, col: Any) -> bool:
+        """Return True if the column name marks it as a price, amount or cost column."""
+        name = str(col).lower()
+        return any(hint in name for hint in cls.MONEY_COLUMN_HINTS)
+
+    def _numeric_columns(self, df: pd.DataFrame) -> dict[Any, pd.Series]:
+        """Numeric columns plus money columns coerced to numbers (unparseable cells become NaN)."""
+        columns = {col: df[col] for col in df.select_dtypes(include=["float64", "int64"]).columns}
+        for col in df.columns:
+            if col in columns or not self._is_money_column(col):
+                continue
+            converted = pd.to_numeric(df[col], errors="coerce")
+            if not pd.api.types.is_numeric_dtype(converted) or pd.api.types.is_bool_dtype(converted):
+                continue
+            if converted.notna().any():
+                columns[col] = converted
+        return columns
 
     def run_all_checks(self, df: pd.DataFrame, source_name: str = "unknown") -> dict[str, Any]:
         self.rules = []
@@ -170,7 +191,7 @@ class DataQualityEngine:
                 if len(non_null) > 0:
                     rule = QualityRule(f"valid_email_{col}", f"Validate email format in '{col}'", "error")
                     email_pattern = r"^[\w.+-]+@[\w-]+\.[\w.]+$"
-                    invalid = non_null[~non_null.astype(str).str.match(email_pattern)]
+                    invalid = non_null[~non_null.astype(str).str.fullmatch(email_pattern)]
                     rule.passed = len(invalid) == 0
                     rule.details = {"column": col, "invalid_count": len(invalid), "sample_invalid": list(invalid.head(3))}
                     self.rules.append(rule)
@@ -180,14 +201,25 @@ class DataQualityEngine:
                 if len(non_null) > 0:
                     rule = QualityRule(f"valid_phone_{col}", f"Validate phone format in '{col}'", "warning")
                     phone_pattern = r"^\d{3}-\d{4}$|^\d{3}-\d{3}-\d{4}$|^\(\d{3}\)\s?\d{3}-\d{4}$"
-                    invalid = non_null[~non_null.astype(str).str.match(phone_pattern)]
+                    invalid = non_null[~non_null.astype(str).str.fullmatch(phone_pattern)]
                     rule.passed = len(invalid) == 0
                     rule.details = {"column": col, "invalid_count": len(invalid), "sample_invalid": list(invalid.head(3).astype(str))}
                     self.rules.append(rule)
 
-        for col in df.select_dtypes(include=["float64", "int64"]).columns:
-            if "price" in col.lower() or "amount" in col.lower() or "cost" in col.lower():
-                non_null = df[col].dropna()
+        for col, values in self._numeric_columns(df).items():
+            if self._is_money_column(col):
+                non_numeric = df[col].notna() & values.isna()
+                mostly_numeric = values.notna().sum() >= non_numeric.sum()
+                if non_numeric.any() and mostly_numeric:
+                    rule = QualityRule(f"numeric_{col}", f"Check that values in '{col}' are numeric", "error")
+                    rule.passed = False
+                    rule.details = {
+                        "column": col,
+                        "non_numeric_count": int(non_numeric.sum()),
+                        "sample_non_numeric": list(df[col][non_numeric].head(3).astype(str)),
+                    }
+                    self.rules.append(rule)
+                non_null = values.dropna()
                 negatives = (non_null < 0).sum()
                 if negatives > 0:
                     rule = QualityRule(f"non_negative_{col}", f"Check for negative values in '{col}'", "error")
@@ -214,9 +246,8 @@ class DataQualityEngine:
                 pass
 
     def _check_accuracy(self, df: pd.DataFrame) -> None:
-        numeric_cols = df.select_dtypes(include=["float64", "int64"]).columns
-        for col in numeric_cols:
-            non_null = df[col].dropna()
+        for col, values in self._numeric_columns(df).items():
+            non_null = values.dropna()
             if len(non_null) < 5:
                 continue
             q1 = non_null.quantile(0.25)
@@ -269,6 +300,9 @@ class DataQualityEngine:
                 recommendations.append("Add email validation at ingestion point")
             elif "valid_phone" in rule.name:
                 recommendations.append("Standardize phone number format (e.g., XXX-XXX-XXXX)")
+            elif rule.name.startswith("numeric_"):
+                col = rule.details.get("column", "financial column")
+                recommendations.append(f"Fix non-numeric values in '{col}' - financial columns must contain only numbers")
             elif "non_negative" in rule.name:
                 col = rule.details.get("column", "financial column")
                 recommendations.append(f"Investigate negative values in '{col}' - may indicate data entry errors or refunds")
