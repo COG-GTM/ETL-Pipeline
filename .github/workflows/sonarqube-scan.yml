@@ -316,7 +316,7 @@ jobs:
           ISSUE_REFS=$(jq -c '[.issues[]?
             | {key: .key, rule: .rule, type: .type, severity: .severity, line: .line}
             | select((.key | type) == "string" and (.key | test("^[A-Za-z0-9_-]{1,64}$")))
-            | select((.rule | type) == "string" and (.rule | test("^[a-z0-9]{1,32}:[A-Za-z0-9_-]{1,64}$")))
+            | select((.rule | type) == "string" and (.rule | test("^[A-Za-z0-9]{1,32}:[A-Za-z0-9_-]{1,64}$")))
             | select(.type == "VULNERABILITY" or .type == "BUG" or .type == "CODE_SMELL")
             | select(.severity == "BLOCKER" or .severity == "CRITICAL" or .severity == "MAJOR" or .severity == "MINOR" or .severity == "INFO")
             | .line |= (if type == "number" then floor else null end)]' \
@@ -325,7 +325,7 @@ jobs:
           HOTSPOT_REFS=$(jq -c '[.hotspots[]?
             | {key: .key, rule: .ruleKey, probability: .vulnerabilityProbability, line: .line}
             | select((.key | type) == "string" and (.key | test("^[A-Za-z0-9_-]{1,64}$")))
-            | select((.rule | type) == "string" and (.rule | test("^[a-z0-9]{1,32}:[A-Za-z0-9_-]{1,64}$")))
+            | select((.rule | type) == "string" and (.rule | test("^[A-Za-z0-9]{1,32}:[A-Za-z0-9_-]{1,64}$")))
             | select(.probability == "HIGH" or .probability == "MEDIUM" or .probability == "LOW")
             | .line |= (if type == "number" then floor else null end)]' \
             <<<"$SECURITY_HOTSPOTS_RESP")
