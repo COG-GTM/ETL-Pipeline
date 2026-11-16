@@ -227,7 +227,7 @@ class SourceProfiler:
                 if reveal_values:
                     lines.append(f"    Top Values: {dict(list(col_info['top_values'].items())[:5])}")
                 else:
-                    lines.append(f"    Top Values: {len(col_info['top_values'])} distinct values (masked)")
+                    lines.append(f"    Top Values: {col_info['unique_count']} distinct values (masked)")
             lines.append("")
 
         return "\n".join(lines)
