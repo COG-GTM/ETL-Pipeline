@@ -89,7 +89,7 @@ def test_unsafe_data_type_is_rejected():
         _ddl(schema)
 
 
-@pytest.mark.parametrize("name", ["", "   ", "a\x00b", "x" * 64, None])
+@pytest.mark.parametrize("name", ["", "   ", "a\x00b", None])
 def test_quote_identifier_rejects_unusable_names(name):
     with pytest.raises(UnsafeDDLValueError):
         quote_identifier(name)
@@ -98,3 +98,9 @@ def test_quote_identifier_rejects_unusable_names(name):
 @pytest.mark.parametrize("dtype", ["VARCHAR(255)", "DECIMAL", "INTEGER", "DATE", "TIMESTAMP", "BOOLEAN", "NUMERIC(10, 2)"])
 def test_safe_data_type_accepts_detector_types(dtype):
     assert safe_data_type(dtype) == dtype
+
+
+def test_long_source_name_still_generates_ddl():
+    table = "t" * 60
+    ddl = _ddl(_schema("transactions", ["transaction_id"]), _schema(table, ["c"]))
+    assert f'"dim_{table}_sk" SERIAL PRIMARY KEY' in ddl

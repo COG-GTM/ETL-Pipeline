@@ -22,8 +22,6 @@ def quote_identifier(name: str) -> str:
     """Return ``name`` as a double-quoted PostgreSQL identifier that is always a single token."""
     if not isinstance(name, str) or not name.strip() or "\x00" in name:
         raise UnsafeDDLValueError(f"Unsafe SQL identifier: {name!r}")
-    if len(name.encode("utf-8")) > 63:
-        raise UnsafeDDLValueError(f"SQL identifier longer than 63 bytes: {name!r}")
     return '"' + name.replace('"', '""') + '"'
 
 
