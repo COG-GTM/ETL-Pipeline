@@ -19,8 +19,11 @@ def mask_email(value: Any) -> str:
     local, at, domain = text.rpartition("@")
     if not at:
         return mask_text(text)
-    label, dot, tld = domain.partition(".")
-    masked_domain = mask_text(label) + (f".{tld.rsplit('.', 1)[-1]}" if dot else "")
+    label, dot, rest = domain.partition(".")
+    masked_domain = mask_text(label)
+    if dot:
+        tld = rest.rsplit(".", 1)[-1]
+        masked_domain += f".{tld}" if re.fullmatch(r"[A-Za-z]{2,24}", tld) else ".***"
     return f"{mask_text(local)}@{masked_domain}"
 
 

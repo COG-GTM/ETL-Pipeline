@@ -72,6 +72,8 @@ def test_numeric_phone_values_are_masked():
         ("no-at-sign.example.com", "n***"),
         ("a@b@c.org", "a***@c***.org"),
         ("@example.com", "@e***.com"),
+        ("alice@example.com ssn:123-45-6789", "a***@e***.***"),
+        ("alice@example.c0m", "a***@e***.***"),
         ("", ""),
     ],
 )
