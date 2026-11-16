@@ -40,6 +40,7 @@ docker-compose down
 Create `.env` file from `.env.example` with:
 - Database credentials (DB_NAME, DB_HOST, DB_PORT, DB_USER, DB_PASSWORD)
 - AWS credentials (aws_access_key_id, aws_secret_access_key_id)
+- S3 destination (S3_BUCKET, S3_EXPECTED_BUCKET_OWNER = 12-digit account ID that must own the bucket, optional S3_KEY)
 
 ## Code Style Guidelines
 
