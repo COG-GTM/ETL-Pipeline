@@ -1,0 +1,29 @@
+// Regenerate: dot -Tsvg docs/diagrams/zero-touch-demo.dot -o docs/diagrams/zero-touch-demo.svg
+digraph zero_touch_demo {
+  graph [rankdir=TB, fontname="Helvetica", nodesep=0.35, ranksep=0.4, pad=0.3, style="rounded,filled", fillcolor="#F5F3FF", color="#8B5CF6",
+         label="Zero-Touch ETL demo: python -m demo.run_demo (local sample files only, no Postgres or S3)", labelloc=t, fontsize=14];
+  node  [shape=box, style="rounded,filled", fillcolor="#FFFFFF", color="#475569", fontname="Helvetica", fontsize=11];
+  edge  [color="#475569", fontname="Helvetica", fontsize=9];
+  samples [label="demo/sample_data/\nCSV: customers, transactions, products\nJSON: inventory, supplier_orders\nXML: shipping_records\nAPI mock: returns_api.json", shape=folder, fillcolor="#EDE9FE"];
+  p1 [label="Phase 1  src/profiler/\nSourceProfiler + SchemaDetector\nprofiles + schemas for all 7 sources"];
+  p2 [label="Phase 2  src/quality/\nDataQualityEngine\nscore 0-100 + grade A-F (3 CSVs)"];
+  p3 [label="Phase 3  src/model_designer/\nTargetModelDesigner\nstar schema + PostgreSQL DDL"];
+  p4 [label="Phase 4  src/pipeline_generator/\nPipelineBuilder\npipeline config + generated Python code"];
+  p5 [label="Phase 5  src/orchestrator/\nMultiAgentOrchestrator\nArchitect -> Developer -> QA -> PM\n(in-process simulation, no LLM calls)", fillcolor="#FCE7F3"];
+  p6 [label="Phase 6  demo/playbooks/\nDataOnboardingPlaybook (customers.csv)\nQualityGatePlaybook min_score=70\n(transactions.csv)"];
+  p7 [label="Phase 7  src/domain_learner/\nDomainKnowledgeBase\nentities, business rules, glossary"];
+  p8 [label="Phase 8  src/consolidator/\nDataConsolidator\ntransactions LEFT JOIN customers, products\nwith lineage log"];
+  kb  [label="demo/domain_knowledge/\ndomain_knowledge.json", shape=note, fillcolor="#F8FAFC"];
+  out [label="Console report (stdout)", shape=note, fillcolor="#F8FAFC"];
+
+  samples -> p1;
+  samples -> p2 [label="CSV"];
+  samples -> p6 [label="CSV"];
+  samples -> p8 [label="CSV"];
+  p1 -> p3 [label="schemas"];
+  p1 -> p4; p2 -> p4; p3 -> p4;
+  p1 -> p5; p2 -> p5; p3 -> p5; p4 -> p5 [label="config"];
+  p1 -> p7 [label="profiles"];
+  p7 -> kb [label="save_knowledge()"];
+  {p5 p6 p8} -> out [style=dotted];
+}
