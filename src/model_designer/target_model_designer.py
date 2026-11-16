@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from src.sql_identifiers import quote_identifier, safe_data_type, sql_comment_text
+from ..sql_identifiers import quote_identifier, safe_data_type, sql_comment_text
 
 
 class TargetModelDesigner:
