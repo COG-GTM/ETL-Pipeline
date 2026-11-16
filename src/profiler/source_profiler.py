@@ -1,14 +1,24 @@
 import json
 import os
+import re
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
 
 
+SENSITIVE_SEMANTIC_TYPES = {"email", "phone", "date"}
+PERSONAL_DATA_NAME_PATTERN = re.compile(
+    r"(name|e_?mail|phone|mobile|fax|address|street|zip|postal|postcode|ssn|social_security|"
+    r"birth|dob|passport|license|licence|tax_id|national_id)",
+    re.IGNORECASE,
+)
+
+
 class SourceProfiler:
-    def __init__(self):
+    def __init__(self, include_top_values: bool = False):
         self.profile_results: dict[str, Any] = {}
+        self.include_top_values = include_top_values
 
     def profile_csv(self, file_path: str) -> dict[str, Any]:
         df = pd.read_csv(file_path)
@@ -137,7 +147,6 @@ class SourceProfiler:
                 col_info["inferred_role"] = "identifier"
             elif col_info["unique_count"] <= 20:
                 col_info["inferred_role"] = "categorical"
-                col_info["top_values"] = non_null.value_counts().head(10).to_dict()
             else:
                 col_info["inferred_role"] = "text"
 
@@ -160,9 +169,17 @@ class SourceProfiler:
             if sample_size > 0 and date_parseable / sample_size > 0.8:
                 col_info["semantic_type"] = "date"
 
+            if (
+                self.include_top_values
+                and col_info["inferred_role"] == "categorical"
+                and col_info.get("semantic_type") not in SENSITIVE_SEMANTIC_TYPES
+                and not PERSONAL_DATA_NAME_PATTERN.search(str(series.name))
+            ):
+                col_info["top_values"] = non_null.value_counts().head(10).to_dict()
+
         return col_info
 
-    def generate_report(self, profile: dict[str, Any]) -> str:
+    def generate_report(self, profile: dict[str, Any], reveal_values: bool = False) -> str:
         lines = []
         lines.append(f"{'='*70}")
         lines.append(f"  SOURCE DATA PROFILE REPORT")
@@ -207,7 +224,10 @@ class SourceProfiler:
                     lines.append(f"    WARNING: {stats['negatives']} negative values detected")
 
             if "top_values" in col_info:
-                lines.append(f"    Top Values: {dict(list(col_info['top_values'].items())[:5])}")
+                if reveal_values:
+                    lines.append(f"    Top Values: {dict(list(col_info['top_values'].items())[:5])}")
+                else:
+                    lines.append(f"    Top Values: {col_info['unique_count']} distinct values (masked)")
             lines.append("")
 
         return "\n".join(lines)
