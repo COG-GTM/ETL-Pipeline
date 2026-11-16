@@ -26,6 +26,7 @@ def load_s3_config():
 
 
 def main():
+    """Run the extract -> dedupe -> S3 upload pipeline; raises on upload failure."""
     # Load environment variables (only needed for local/dev testing)
     load_dotenv()
 

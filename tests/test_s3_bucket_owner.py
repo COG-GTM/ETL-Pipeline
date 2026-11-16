@@ -19,6 +19,7 @@ DF = pd.DataFrame({"vin": ["V1"], "buyer_name": ["Alice"]})
 
 @pytest.fixture
 def stubbed_s3(monkeypatch):
+    """S3 client with a botocore Stubber, injected into df_to_s3."""
     client = boto3.client("s3", region_name="us-west-2",
                           aws_access_key_id="x", aws_secret_access_key="y")
     monkeypatch.setattr(load_data_to_s3, "connect_to_s3", lambda *a, **k: client)
@@ -28,6 +29,7 @@ def stubbed_s3(monkeypatch):
 
 
 def test_put_object_sends_expected_bucket_owner(stubbed_s3):
+    """put_object is called with ExpectedBucketOwner."""
     stubbed_s3.add_response("put_object", {}, {
         "Bucket": "my-bucket", "Key": "k.csv",
         "Body": "vin,buyer_name\nV1,Alice\n", "ExpectedBucketOwner": OWNER,
@@ -36,6 +38,7 @@ def test_put_object_sends_expected_bucket_owner(stubbed_s3):
 
 
 def test_bucket_owned_by_other_account_raises(stubbed_s3, capsys):
+    """A 403 from S3 propagates and no success line is printed."""
     stubbed_s3.add_client_error("put_object", service_error_code="AccessDenied",
                                 http_status_code=403)
     with pytest.raises(botocore.exceptions.ClientError):
@@ -47,6 +50,7 @@ def test_bucket_owned_by_other_account_raises(stubbed_s3, capsys):
 
 @pytest.mark.parametrize("owner", [None, "", "12345", "1111222233334", "abcdefghijkl"])
 def test_invalid_expected_owner_rejected_before_upload(owner):
+    """A missing or malformed account ID is rejected before S3 is contacted."""
     with mock.patch.object(load_data_to_s3, "connect_to_s3") as connect:
         with pytest.raises(ValueError):
             load_data_to_s3.df_to_s3(DF, "k.csv", "my-bucket", "x", "y",
@@ -55,6 +59,7 @@ def test_invalid_expected_owner_rejected_before_upload(owner):
 
 
 def test_expected_owner_is_required():
+    """expected_bucket_owner has no default."""
     with pytest.raises(TypeError):
         load_data_to_s3.df_to_s3(DF, "k.csv", "my-bucket", "x", "y")
 
@@ -66,6 +71,7 @@ def test_expected_owner_is_required():
     {"S3_BUCKET": "my-bucket", "S3_EXPECTED_BUCKET_OWNER": "not-an-id"},
 ])
 def test_main_fails_at_startup_without_s3_config(monkeypatch, env):
+    """main() exits non-zero before extraction when S3 config is incomplete."""
     for name in ("S3_BUCKET", "S3_EXPECTED_BUCKET_OWNER", "S3_KEY"):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
@@ -79,6 +85,7 @@ def test_main_fails_at_startup_without_s3_config(monkeypatch, env):
 
 
 def test_main_exits_nonzero_without_success_message_when_upload_rejected(tmp_path):
+    """Running main.py with a rejected upload exits non-zero without the success message."""
     runner = tmp_path / "run.py"
     runner.write_text(
         "import runpy, sys, boto3, pandas as pd\n"
