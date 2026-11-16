@@ -1,0 +1,41 @@
+"""Safe rendering of identifiers and types in generated PostgreSQL DDL.
+
+Table and column names come from source file names and header rows, so they
+must never be pasted into SQL text verbatim.
+"""
+
+import re
+
+_DATA_TYPE = re.compile(
+    r"(?:SMALLINT|INTEGER|INT|BIGINT|SERIAL|BIGSERIAL|REAL|DOUBLE PRECISION|BOOLEAN|DATE"
+    r"|TEXT|UUID|JSON|JSONB)"
+    r"|(?:VARCHAR|CHAR)(?:\(\d{1,5}\))?"
+    r"|(?:DECIMAL|NUMERIC)(?:\(\d{1,4}(?:,\s?\d{1,4})?\))?"
+    r"|FLOAT(?:\(\d{1,2}\))?"
+    r"|(?:TIME|TIMESTAMP|TIMESTAMPTZ)(?:\([0-6]\))?",
+    re.IGNORECASE,
+)
+
+
+class UnsafeDDLValueError(ValueError):
+    """Raised when a value cannot be rendered safely into generated DDL."""
+
+
+def quote_identifier(name: str) -> str:
+    """Return ``name`` as a double-quoted PostgreSQL identifier that is always a single token."""
+    if not isinstance(name, str) or not name.strip() or "\x00" in name:
+        raise UnsafeDDLValueError(f"Unsafe SQL identifier: {name!r}")
+    return '"' + name.replace('"', '""') + '"'
+
+
+def safe_data_type(data_type: str | None, default: str = "VARCHAR(255)") -> str:
+    """Return ``data_type`` if it is an allowlisted PostgreSQL column type."""
+    value = default if data_type is None else data_type
+    if isinstance(value, str) and _DATA_TYPE.fullmatch(value.strip()):
+        return value.strip()
+    raise UnsafeDDLValueError(f"Unsupported SQL data type: {data_type!r}")
+
+
+def sql_comment_text(value: object) -> str:
+    """Flatten text for a ``--`` comment so line breaks cannot end the comment early."""
+    return " ".join(str(value).splitlines())
