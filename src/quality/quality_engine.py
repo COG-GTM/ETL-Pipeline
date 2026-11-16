@@ -37,13 +37,16 @@ class DataQualityEngine:
         return any(hint in name for hint in cls.MONEY_COLUMN_HINTS)
 
     def _numeric_columns(self, df: pd.DataFrame) -> dict[Any, pd.Series]:
-        """Numeric columns plus money columns coerced to numbers (unparseable cells become NaN)."""
+        """Numeric columns plus mostly-numeric money columns coerced to numbers (unparseable cells become NaN)."""
         columns = {col: df[col] for col in df.select_dtypes(include=["float64", "int64"]).columns}
         for col in df.columns:
             if col in columns or not self._is_money_column(col):
                 continue
             converted = pd.to_numeric(df[col], errors="coerce")
-            if pd.api.types.is_numeric_dtype(converted) and not pd.api.types.is_bool_dtype(converted):
+            if not pd.api.types.is_numeric_dtype(converted) or pd.api.types.is_bool_dtype(converted):
+                continue
+            present = df[col].notna()
+            if present.any() and converted[present].notna().sum() * 2 >= present.sum():
                 columns[col] = converted
         return columns
 

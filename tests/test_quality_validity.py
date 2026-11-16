@@ -86,3 +86,10 @@ def test_boolean_money_named_column_does_not_crash():
     rules = _rules(DataQualityEngine().run_all_checks(df))
     assert "numeric_cost_approved" not in rules
     assert "outliers_cost_approved" not in rules
+
+
+def test_text_label_money_named_column_is_not_flagged():
+    df = pd.DataFrame({"cost_center": ["CC-100", "CC-200", "OPS"], "price_tier": ["gold", "silver", "gold"]})
+    rules = _rules(DataQualityEngine().run_all_checks(df))
+    assert "numeric_cost_center" not in rules
+    assert "numeric_price_tier" not in rules
