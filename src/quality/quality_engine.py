@@ -33,6 +33,7 @@ class DataQualityEngine:
 
     @classmethod
     def _is_money_column(cls, col: Any) -> bool:
+        """Return True if the column name marks it as a price, amount or cost column."""
         name = str(col).lower()
         return any(hint in name for hint in cls.MONEY_COLUMN_HINTS)
 
