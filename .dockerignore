@@ -1,1 +1,13 @@
-.env
+# Deny everything by default so local files (.git history, data/ exports,
+# virtualenvs, .env files) never enter the build context.
+*
+
+# Re-include only what the image needs
+!main.py
+!requirements.txt
+!src/
+
+# Never ship caches or env files, even inside re-included paths
+**/__pycache__
+**/*.py[cod]
+**/.env*
