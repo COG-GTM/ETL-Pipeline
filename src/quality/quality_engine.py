@@ -40,8 +40,11 @@ class DataQualityEngine:
         """Numeric columns plus money columns coerced to numbers (unparseable cells become NaN)."""
         columns = {col: df[col] for col in df.select_dtypes(include=["float64", "int64"]).columns}
         for col in df.columns:
-            if col not in columns and self._is_money_column(col) and not pd.api.types.is_bool_dtype(df[col]):
-                columns[col] = pd.to_numeric(df[col], errors="coerce")
+            if col in columns or not self._is_money_column(col):
+                continue
+            converted = pd.to_numeric(df[col], errors="coerce")
+            if pd.api.types.is_numeric_dtype(converted) and not pd.api.types.is_bool_dtype(converted):
+                columns[col] = converted
         return columns
 
     def run_all_checks(self, df: pd.DataFrame, source_name: str = "unknown") -> dict[str, Any]:

@@ -79,3 +79,10 @@ def test_money_column_text_lowers_score():
     tampered_report = engine.run_all_checks(tampered)
     assert tampered_report["error_failures"] >= 2
     assert tampered_report["overall_score"] < clean_score
+
+
+def test_boolean_money_named_column_does_not_crash():
+    df = pd.DataFrame({"cost_approved": pd.Series([True, False, True, True, False], dtype=object)})
+    rules = _rules(DataQualityEngine().run_all_checks(df))
+    assert "numeric_cost_approved" not in rules
+    assert "outliers_cost_approved" not in rules
