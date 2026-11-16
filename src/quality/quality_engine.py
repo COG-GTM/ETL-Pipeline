@@ -1,7 +1,40 @@
+import re
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
+
+SAMPLE_LIMIT = 3
+
+
+def mask_text(value: Any) -> str:
+    text = str(value)
+    if not text:
+        return ""
+    return f"{text[0]}***"
+
+
+def mask_email(value: Any) -> str:
+    text = str(value)
+    local, at, domain = text.rpartition("@")
+    if not at:
+        return mask_text(text)
+    label, dot, tld = domain.partition(".")
+    masked_domain = mask_text(label) + (f".{tld.rsplit('.', 1)[-1]}" if dot else "")
+    return f"{mask_text(local)}@{masked_domain}"
+
+
+def mask_phone(value: Any) -> str:
+    text = str(value)
+    keep = 2 if sum(c.isalnum() for c in text) >= 4 else 0
+    masked = []
+    for c in reversed(text):
+        if c.isalnum():
+            masked.append(c if keep > 0 else "*")
+            keep -= 1
+        else:
+            masked.append(c)
+    return "".join(reversed(masked))
 
 
 class QualityRule:
@@ -148,7 +181,7 @@ class DataQualityEngine:
                     rule.passed = False
                     rule.details = {
                         "column": col,
-                        "potential_inconsistencies": inconsistencies[:5],
+                        "potential_inconsistencies": [(mask_text(a), mask_text(b)) for a, b in inconsistencies[:5]],
                     }
                     self.rules.append(rule)
 
@@ -172,7 +205,7 @@ class DataQualityEngine:
                     email_pattern = r"^[\w.+-]+@[\w-]+\.[\w.]+$"
                     invalid = non_null[~non_null.astype(str).str.match(email_pattern)]
                     rule.passed = len(invalid) == 0
-                    rule.details = {"column": col, "invalid_count": len(invalid), "sample_invalid": list(invalid.head(3))}
+                    rule.details = {"column": col, "invalid_count": len(invalid), "sample_invalid": [mask_email(v) for v in invalid.head(SAMPLE_LIMIT)]}
                     self.rules.append(rule)
 
             if "phone" in col.lower():
@@ -182,7 +215,7 @@ class DataQualityEngine:
                     phone_pattern = r"^\d{3}-\d{4}$|^\d{3}-\d{3}-\d{4}$|^\(\d{3}\)\s?\d{3}-\d{4}$"
                     invalid = non_null[~non_null.astype(str).str.match(phone_pattern)]
                     rule.passed = len(invalid) == 0
-                    rule.details = {"column": col, "invalid_count": len(invalid), "sample_invalid": list(invalid.head(3).astype(str))}
+                    rule.details = {"column": col, "invalid_count": len(invalid), "sample_invalid": [mask_phone(v) for v in invalid.head(SAMPLE_LIMIT)]}
                     self.rules.append(rule)
 
         for col in df.select_dtypes(include=["float64", "int64"]).columns:
