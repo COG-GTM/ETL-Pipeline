@@ -38,6 +38,7 @@ docker-compose down
 
 ### Environment Variables
 Create `.env` file from `.env.example` with:
+- Local Postgres container settings (POSTGRES_PASSWORD is required; never commit it). The container is published on 127.0.0.1 only
 - Database credentials (DB_NAME, DB_HOST, DB_PORT, DB_USER, DB_PASSWORD)
 - AWS credentials (aws_access_key_id, aws_secret_access_key_id)
 
