@@ -10,6 +10,7 @@ from src import extract
 def clean_env(monkeypatch):
     """Isolate tests from DB_SSL* / PG* connection settings in the env."""
     for name in ("DB_SSLMODE", "DB_SSLROOTCERT", "DB_CONNECT_TIMEOUT",
+                 "DB_REQUIRE_AUTH",
                  "PGHOST", "PGHOSTADDR", "PGSERVICE"):
         monkeypatch.delenv(name, raising=False)
 
@@ -154,3 +155,32 @@ def test_extract_closes_connection(fails):
                 {"sale_date": [], "service_date": []})
             extract.extract_vehicle_sales_data("etl", "db", 5432, "u", "p")
     conn.close.assert_called_once_with()
+
+
+def test_require_auth_defaults_to_scram():
+    """libpq refuses cleartext and MD5 password requests by default."""
+    assert _connect()["require_auth"] == "scram-sha-256"
+
+
+def test_require_auth_from_env_and_argument(monkeypatch):
+    """DB_REQUIRE_AUTH is used unless an argument overrides it."""
+    monkeypatch.setenv("DB_REQUIRE_AUTH", " SCRAM-SHA-256,md5 ")
+    assert _connect()["require_auth"] == "scram-sha-256,md5"
+    assert _connect(require_auth="scram-sha-256")["require_auth"] == \
+        "scram-sha-256"
+
+
+def test_require_auth_can_be_disabled(monkeypatch):
+    """DB_REQUIRE_AUTH=any leaves the option out entirely."""
+    monkeypatch.setenv("DB_REQUIRE_AUTH", "any")
+    assert "require_auth" not in _connect()
+
+
+def test_require_auth_rejected_on_old_libpq():
+    """Old libpq cannot enforce require_auth, so the connection fails closed."""
+    with mock.patch.object(extract.psycopg2.extensions, "libpq_version",
+                           return_value=150005), \
+            mock.patch.object(extract.psycopg2, "connect") as connect:
+        with pytest.raises(ValueError):
+            extract.connect_to_postgres("etl", "db.example.com", 5432, "u", "p")
+    connect.assert_not_called()

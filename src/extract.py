@@ -2,6 +2,7 @@ import ipaddress
 import os
 
 import psycopg2
+import psycopg2.extensions
 import pandas as pd
 
 DEFAULT_SSLMODE = "verify-full"
@@ -9,6 +10,9 @@ REMOTE_SSLMODES = ("verify-full",)
 LOCAL_ONLY_SSLMODES = ("disable", "allow", "prefer", "require", "verify-ca")
 LOOPBACK_HOSTNAMES = ("localhost",)
 DEFAULT_CONNECT_TIMEOUT = 10
+DEFAULT_REQUIRE_AUTH = "scram-sha-256"
+REQUIRE_AUTH_DISABLED = "any"
+REQUIRE_AUTH_MIN_LIBPQ = 160000
 
 
 def _all_loopback(value, allow_names):
@@ -93,8 +97,30 @@ def resolve_connect_timeout(connect_timeout=None):
     return timeout
 
 
+def resolve_auth_options(require_auth=None):
+    """
+    Return the libpq ``require_auth`` option.
+
+    Defaults to ``DB_REQUIRE_AUTH`` and then ``scram-sha-256`` so libpq
+    refuses to send a cleartext or MD5 password if the server asks for one.
+    ``DB_REQUIRE_AUTH=any`` turns the check off. libpq older than 16 does not
+    support ``require_auth``, so it is rejected instead of silently skipped.
+    """
+    raw = require_auth or os.getenv("DB_REQUIRE_AUTH") or DEFAULT_REQUIRE_AUTH
+    value = raw.strip().lower()
+    if value == REQUIRE_AUTH_DISABLED:
+        return {}
+    if psycopg2.extensions.libpq_version() < REQUIRE_AUTH_MIN_LIBPQ:
+        raise ValueError(
+            f"DB_REQUIRE_AUTH={value} needs libpq 16 or newer; upgrade "
+            f"psycopg2 or set DB_REQUIRE_AUTH={REQUIRE_AUTH_DISABLED}"
+        )
+    return {"require_auth": value}
+
+
 def connect_to_postgres(dbname, host, port, user, password,
-                        sslmode=None, sslrootcert=None, connect_timeout=None):
+                        sslmode=None, sslrootcert=None, connect_timeout=None,
+                        require_auth=None):
     """Connects to a local or remote PostgreSQL database over TLS"""
     conn = psycopg2.connect(
         dbname=dbname,
@@ -103,7 +129,8 @@ def connect_to_postgres(dbname, host, port, user, password,
         user=user,
         password=password,
         connect_timeout=resolve_connect_timeout(connect_timeout),
-        **resolve_ssl_options(host, sslmode, sslrootcert)
+        **resolve_ssl_options(host, sslmode, sslrootcert),
+        **resolve_auth_options(require_auth)
     )
     print("✅ Connected to PostgreSQL")
     return conn
