@@ -4,6 +4,7 @@ from demo.playbooks.quality_gate import QualityGatePlaybook
 
 
 def _run_gate(score, critical=0, min_score=75, block_on_critical=True):
+    """Run the gate against a stubbed quality report with the given score."""
     gate = QualityGatePlaybook(min_score=min_score, block_on_critical=block_on_critical)
     report = {
         "overall_score": score,
@@ -19,6 +20,7 @@ def _run_gate(score, critical=0, min_score=75, block_on_critical=True):
 
 
 def _says_proceed(result):
+    """Return True if the decision or action text tells the caller to load the data."""
     return any(
         "proceed" in str(result[key]).lower() or "cleared" in str(result[key]).lower()
         for key in ("decision", "action")
@@ -27,6 +29,7 @@ def _says_proceed(result):
 
 @pytest.mark.parametrize("score", [60.0, 62.0, 65.0, 74.9])
 def test_score_below_min_in_remediation_band_is_blocked(score):
+    """Scores in [0.8*min_score, min_score) are blocked as NEEDS_REMEDIATION."""
     result = _run_gate(score)
 
     assert result["gate_passed"] is False
@@ -37,6 +40,7 @@ def test_score_below_min_in_remediation_band_is_blocked(score):
 
 @pytest.mark.parametrize("score", [0.0, 30.0, 59.9])
 def test_score_far_below_min_is_rejected(score):
+    """Scores below 0.8*min_score are REJECTED."""
     result = _run_gate(score)
 
     assert result["gate_passed"] is False
@@ -46,6 +50,7 @@ def test_score_far_below_min_is_rejected(score):
 
 @pytest.mark.parametrize("score", [75.0, 90.0, 100.0])
 def test_score_at_or_above_min_is_approved(score):
+    """Scores at or above min_score are APPROVED."""
     result = _run_gate(score)
 
     assert result["gate_passed"] is True
@@ -53,6 +58,7 @@ def test_score_at_or_above_min_is_approved(score):
 
 
 def test_critical_failure_rejects_even_with_passing_score():
+    """A critical failure blocks the gate even when the score passes."""
     result = _run_gate(95.0, critical=1)
 
     assert result["gate_passed"] is False
@@ -63,6 +69,7 @@ def test_critical_failure_rejects_even_with_passing_score():
 @pytest.mark.parametrize("score", [0.0, 30.0, 62.0, 74.9, 75.0, 100.0])
 @pytest.mark.parametrize("critical", [0, 1])
 def test_decision_never_disagrees_with_gate_passed(score, critical):
+    """Only APPROVED coincides with gate_passed, and blocked results never say proceed."""
     result = _run_gate(score, critical=critical)
 
     assert (result["decision"] == "APPROVED") is result["gate_passed"]
