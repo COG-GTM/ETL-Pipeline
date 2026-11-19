@@ -1,0 +1,70 @@
+// Architecture of COG-GTM/ETL-Pipeline as it exists on main.
+// Edit this file, then run ./render.sh to regenerate architecture.png and architecture.svg.
+digraph architecture {
+  graph [rankdir=TB, fontname="DejaVu Sans", fontsize=20, labelloc=t, nodesep=0.35, ranksep=0.45,
+         label="ETL-Pipeline on main: three independent parts", pad=0.3];
+  node  [shape=box, style="rounded,filled", fontname="DejaVu Sans", fontsize=15, fillcolor=white, color="#475569"];
+  edge  [fontname="DejaVu Sans", fontsize=13, color="#334155"];
+
+  subgraph cluster_etl {
+    label="1. Vehicle sales ETL  (python main.py / Docker image)"; style="rounded,filled"; fillcolor="#E0F2FE"; color="#0284C7";
+    pg      [label="PostgreSQL 15 (docker-compose)\netl_db: dealerships, vehicles,\nsales_transactions, service_records\nseeded by init/init.sql", shape=cylinder, fillcolor="#BAE6FD"];
+    env     [label=".env / environment\nDB_NAME, DB_HOST, DB_PORT,\nDB_USER, DB_PASSWORD,\naws_access_key_id,\naws_secret_access_key_id", shape=note, fillcolor="#F1F5F9"];
+    mainpy  [label="main.py\n(runs the three steps in order)", fillcolor="#7DD3FC"];
+    extract [label="src/extract.py\npsycopg2 + one SQL join\n(COALESCE defaults) -> DataFrame"];
+    trans   [label="src/transform.py\ndrop_duplicates()"];
+    load    [label="src/load_data_to_s3.py\nboto3 put_object (us-west-2)"];
+    s3      [label="Amazon S3\ns3://cognition-devin/\nauto_oem/etl/vehicle_sales_deduped.csv", shape=cylinder, fillcolor="#FDE68A"];
+    {rank=same; env; mainpy; pg;}
+    env -> mainpy [style=dashed, label="load_dotenv()"];
+    mainpy -> extract [label="1"];
+    pg -> extract [label="SELECT"];
+    extract -> trans [label="2"];
+    trans -> load [label="3"];
+    load -> s3 [label="CSV"];
+  }
+
+  subgraph cluster_demo {
+    label="2. Zero-Touch ETL demo  (python -m demo.run_demo, Python 3.10+, no DB)"; style="rounded,filled"; fillcolor="#EDE9FE"; color="#7C3AED";
+    samples [label="demo/sample_data/\nCSV: customers, transactions, products\nJSON: inventory, supplier_orders\nXML: shipping_records\nAPI mock: returns_api.json", shape=folder, fillcolor="#DDD6FE"];
+    runner  [label="demo/run_demo.py\n8 phases, console output\n(DEMO_AUTO_RUN=1 skips pauses)", fillcolor="#C4B5FD"];
+    prof    [label="Ph1  src/profiler/\nSourceProfiler, SchemaDetector"];
+    qual    [label="Ph2  src/quality/\nDataQualityEngine (score + grade)"];
+    model   [label="Ph3  src/model_designer/\nTargetModelDesigner (star schema DDL)"];
+    pipe    [label="Ph4  src/pipeline_generator/\nPipelineBuilder (generated code, printed)"];
+    orch    [label="Ph5  src/orchestrator/\nMultiAgentOrchestrator\nArchitect -> Developer -> QA -> PM"];
+    play    [label="Ph6  demo/playbooks/\nDataOnboarding, QualityGate\n(CrossSystemMerge not called)"];
+    kb      [label="Ph7  src/domain_learner/\nDomainKnowledgeBase"];
+    kbfile  [label="demo/domain_knowledge/\ndomain_knowledge.json\n(written at run time)", shape=note, fillcolor="#F1F5F9"];
+    cons    [label="Ph8  src/consolidator/\nDataConsolidator (joins + lineage)"];
+    {rank=same; samples; runner;}
+    {rank=same; prof; qual; model; pipe;}
+    {rank=same; orch; play; kb; cons;}
+    samples -> runner [label="read"];
+    runner -> prof; runner -> qual; runner -> model; runner -> pipe;
+    prof -> qual [style=dotted]; qual -> model [style=dotted]; model -> pipe [style=dotted];
+    pipe -> orch [label="profiles, reports,\nmodel, pipeline"];
+    qual -> play [style=dotted, label="reuses engine"];
+    prof -> kb [style=dotted, label="profiles"];
+    kb -> kbfile;
+    samples -> cons [style=dotted, label="3 CSVs"];
+  }
+
+  subgraph cluster_ci {
+    label="3. PR quality gate  (.github/workflows/sonarqube-scan.yml)"; style="rounded,filled"; fillcolor="#DCFCE7"; color="#16A34A";
+    pr      [label="Pull request opened / synchronized\nor workflow_dispatch(pr_number, pr_branch)", fillcolor="#BBF7D0"];
+    sonar   [label="SonarCloud scan\nproject COG-GTM_ETL-Pipeline\n(sonar-project.properties: src, main.py, demo)"];
+    gate    [label="Quality gate check", shape=diamond, fillcolor="#FEF9C3"];
+    devin   [label="POST api.devin.ai/v1/sessions\nremediation prompt + PR comment\n(skipped if last commit is Devin AI / [devin-fix])"];
+    fix     [label="Devin pushes a [devin-fix] commit\nto the PR branch -> workflow reruns"];
+    {rank=same; pr; sonar; gate;}
+    {rank=same; devin; fix;}
+    pr -> sonar -> gate;
+    gate -> devin [label="fails"];
+    devin -> fix;
+    fix -> pr [style=dashed, constraint=false];
+  }
+
+  s3 -> samples [style=invis];
+  kbfile -> pr [style=invis];
+}
