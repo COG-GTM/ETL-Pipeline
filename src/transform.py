@@ -10,7 +10,8 @@ def identify_and_remove_duplicated_data(df, subset=None, inplace=False):
     Returns:
     - A cleaned DataFrame with duplicates removed
     """
-    duplicate_count = df.duplicated(subset=subset).sum()
+    duplicate_mask = df.duplicated(subset=subset)
+    duplicate_count = duplicate_mask.sum()
 
     if duplicate_count > 0:
         print("-" * 50)
@@ -23,7 +24,7 @@ def identify_and_remove_duplicated_data(df, subset=None, inplace=False):
             print("-" * 50)
             return df
         else:
-            df_cleaned = df.drop_duplicates(subset=subset, keep='first')
+            df_cleaned = df[~duplicate_mask]
             print("Shape after:", df_cleaned.shape)
             print("-" * 50)
             return df_cleaned
